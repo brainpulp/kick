@@ -86,39 +86,33 @@ See `ASSETS.md` for full detail. Summary:
 - **Git LFS is NOT available** in this environment, and the git remote is a
   local proxy — do not rely on LFS.
 
-## Current status / what's blocking
+## Current status
 
-We are trying to get `T-P.glb` from Google Drive into the build environment.
+The character asset is **in the repo and optimized.** Asset blocker resolved.
 
-- **Network is restricted by an egress allowlist.** Direct `curl` to
-  `drive.google.com` returns 403 ("Host not in allowlist").
-- Maxi added `drive.google.com` and `*.googleusercontent.com` to the **`kick`
-  environment's** Network access (custom allowed domains).
-- **BUT** network policy is locked in **at session start**, so the session where
-  the change was made could not use it. **A NEW session in the `kick`
-  environment is required** for the allowlist to take effect.
-- The Google Drive MCP `download_file_content` tool returns base64 into context
-  — impractical for an 18 MB binary. Use `curl` to disk instead.
+- How the GLB got in: the Drive egress allowlist never took effect (still 403
+  even in a fresh session), so Maxi uploaded `T-P.glb` to the branch via
+  **GitHub's web Upload-files** UI (18.9 MB is under GitHub's 25 MB web limit).
+  This session then pulled it from git — no Drive needed.
+- Inspected + optimized in-session: **18.94 MB → 1.24 MB** runtime asset at
+  `public/assets/t-p.glb` (Draco + WebP + 1024 resize). Rig (28 bones) intact.
+  Full rig inventory and optimization details are in `ASSETS.md`.
+- The raw 18.94 MB file is NOT kept in git; masters stay in Drive.
 
-### Immediate next steps for a fresh session
+### Immediate next steps
 
-1. Confirm network works now:
-   `curl -sS -o /dev/null -w "%{http_code}\n" https://drive.google.com`
-   (expect non-403). If still 403, the allowlist didn't apply — tell Maxi; the
-   fallback is to have him `git push` the GLB to the branch directly (no LFS,
-   plain `git add -f T-P.glb` is acceptable to start).
-2. Download the character:
-   `curl -sSL -o tmp_assets/T-P.glb "https://drive.google.com/uc?export=download&id=1RKMW6fHW_aGvfqaptTmOUcu0vIpW6UGn"`
-   (mkdir `tmp_assets` first). Verify it's a real GLB, not a 103-byte HTML
-   denial page (`file` it; check size ~18 MB; magic bytes start with `glTF`).
-3. Inspect the rig with `npx --yes @gltf-transform/cli inspect tmp_assets/T-P.glb`
-   — report bones/skeleton, mesh count, materials, texture sizes, and whether
-   any animation tracks already exist.
-4. Optimize to a runtime asset in `public/assets/` (Draco + KTX2 + resize),
-   report before/after size.
-5. Report rig contents back to Maxi so we can **map the kick's adjustable
-   parameters to specific bones / IK targets**.
-6. Then scaffold the app (Vite + Three.js + `public/assets/` + asset manifest).
+1. **Get the parameter list from Maxi** (see Open inputs). This is the gate for
+   both the animation authoring and the annotation design.
+2. **Scaffold the app**: Vite + Three.js, load `public/assets/manifest.json` →
+   `t-p.glb` via `GLTFLoader` + `DRACOLoader` (asset uses Draco + WebP). Scale
+   the model up at load (bbox is tiny, ~0.0017 units). Add `OrbitControls`,
+   lighting, ground/goal.
+3. **Author the kick animation** on the existing 28-bone rig (no animation
+   exists yet). Likely keyframe in Blender headless via Python, OR drive bones
+   procedurally at runtime. Kicking leg = `rig:RightUpLeg/RightLeg/RightFoot/
+   RightToeBase`; hips = `rig:Hips`; lean = `rig:Spine*`.
+4. **Wire parameters → bones/IK** and build the **3D annotations** layer
+   (`CSS2DRenderer` labels + in-scene arcs/wedges for ranges).
 
 ## Open inputs needed from Maxi (project owner)
 

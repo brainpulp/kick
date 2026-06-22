@@ -57,8 +57,56 @@ npx --yes @gltf-transform/cli inspect tmp_assets/T-P.glb   # see what's inside
 Target: single-digit MB. Commit the optimized GLB to `public/assets/`, keep the
 original 18 MB GLB as the master in Drive (not git).
 
-## Asset manifest (planned)
+## Asset manifest
 
-Maintain a thin `public/assets/manifest.json` mapping logical names to file
-paths, e.g. `{ "character": "/assets/t-p.optimized.glb" }`, so loaders reference
-logical names and we can relocate storage later by editing one file.
+`public/assets/manifest.json` maps logical names to file paths so loaders
+reference logical names and we can relocate storage later by editing one file.
+Current: `{ "character": "/assets/t-p.glb" }`. (In Vite, `public/` is served at
+the web root, so `public/assets/t-p.glb` is fetched as `/assets/t-p.glb`.)
+
+## Rig inventory (from the actual T-P.glb)
+
+Inspected the real asset. Findings that drive the kick animation + parameters:
+
+- **Format**: glTF 2.0, exported from Blender (Khronos glTF Blender I/O v1.4.40).
+- **Mesh**: single skinned mesh, 8 primitives (one per material), ~66.9k verts.
+- **Materials (8)**: `Arms & Hands`, `hair`, `eyelashes`, `eyes`, `face`,
+  `Kit` (jersey, has normal map), `Legs`, `Boots` (has normal map). A complete
+  uniformed soccer player.
+- **Animations**: NONE. The kick must be authored from scratch.
+- **Scale gotcha**: scene bbox is tiny (~0.0017 units tall) — the model is
+  exported at a very small scale. Scale it up at runtime (or fix in Blender).
+- **Skeleton**: 1 skin, **28 bones**, standard humanoid (`rig:` prefix,
+  Mixamo-style names):
+
+  ```
+  rig:Hips
+   ├─ rig:Spine ─ rig:Spine1 ─ rig:Spine2
+   │   ├─ rig:Neck ─ rig:Head
+   │   ├─ rig:LeftShoulder ─ LeftArm ─ LeftForeArm ─ LeftHand ─ (Index1..3)
+   │   └─ rig:RightShoulder ─ RightArm ─ RightForeArm ─ RightHand ─ (Index1..3)
+   ├─ rig:LeftUpLeg ─ LeftLeg ─ LeftFoot ─ LeftToeBase
+   └─ rig:RightUpLeg ─ RightLeg ─ RightFoot ─ RightToeBase
+  ```
+
+  Bones most relevant to a kick: `rig:Hips` (hip rotation), `rig:Spine/1/2`
+  (lean / follow-through), `rig:RightUpLeg → RightLeg → RightFoot → RightToeBase`
+  (kicking leg; `Left*` for the plant leg, mirror for a left-footed kick).
+
+## Optimization result (done)
+
+Ran `@gltf-transform/cli optimize` (Draco geometry + WebP textures + resize to
+1024) producing the runtime asset committed at `public/assets/t-p.glb`:
+
+- **18.94 MB → 1.24 MB** (~15× smaller).
+- Textures: 9 images, all → WebP at ≤1024px (several were 2048²).
+- Geometry: Draco-compressed; weld+simplify trimmed verts ~66.9k → ~51.3k.
+- Rig preserved: skin + 28 bones + skinning attributes (`JOINTS_0`/`WEIGHTS_0`)
+  intact.
+- Uses extensions `EXT_texture_webp` + `KHR_draco_mesh_compression` — Three.js
+  needs `DRACOLoader` wired into `GLTFLoader`, and WebP is supported by all
+  current target browsers.
+
+The **raw 18.94 MB `T-P.glb`** is NOT kept in git (it lived briefly on the
+branch via web upload to bootstrap this step). The master originals remain in
+Google Drive (see table above). Re-optimize from Drive if the source changes.
