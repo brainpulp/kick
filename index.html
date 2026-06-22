@@ -38,12 +38,19 @@
         font: 600 14px system-ui, sans-serif; color: #bfe9cd;
         background: #0d1b12; transition: opacity .4s; pointer-events: none;
       }
+
+      #build {
+        position: fixed; bottom: 8px; left: 10px; z-index: 5;
+        font: 500 11px ui-monospace, monospace; color: #5f9472;
+        text-shadow: 0 1px 2px rgba(0,0,0,0.7); pointer-events: none;
+      }
     </style>
   </head>
   <body>
     <div id="app"></div>
     <div id="title">kick<small>soccer striking — tune the parameters</small></div>
     <div id="loading">Loading character…</div>
+    <div id="build"></div>
     <script type="module" src="/src/main.js"></script>
   </body>
 </html>
