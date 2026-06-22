@@ -4,8 +4,10 @@ import { createField, BALL_RADIUS } from './field.js';
 import { loadCharacter } from './character.js';
 import { KickAnimation, CONTACT_T, CLIP_END } from './kick/animation.js';
 import { createPanel } from './ui/panel.js';
+import { PoseEditor, buildEditorGUI } from './ui/editor.js';
 import { Annotations } from './ui/annotations.js';
 import { params } from './kick/parameters.js';
+import { BONES } from './character.js';
 
 const SECONDS_FULL = 2.4; // wall-clock seconds for the whole 0..CLIP_END clip
 const GRAVITY = 9.81;
@@ -17,7 +19,7 @@ if (buildEl) buildEl.textContent = `build ${__BUILD__}`;
 const { renderer, labelRenderer, scene, camera, controls } = createScene();
 const { ball } = createField(scene);
 
-let kick = null, annotations = null;
+let kick = null, annotations = null, editor = null;
 let t = 0;                 // normalized clip time 0..CLIP_END
 let launched = false;      // has the ball been struck this cycle
 const ballVel = new THREE.Vector3();
@@ -66,20 +68,42 @@ loadCharacter(scene).then(({ model, bones, rest }) => {
 
   kick = new KickAnimation({ model, bones, rest });
   annotations = new Annotations(scene, ball);
+  editor = new PoseEditor({ bones, rest, boneNames: BONES });
 
-  createPanel({
+  const gui = createPanel({
     onChange: () => { if (!params.playing) applyFrame(params.scrub * CLIP_END); },
     onReplay: () => { t = 0; resetBall(); params.playing = true; },
   });
+  buildEditorGUI(gui, editor, {
+    kick, params,
+    onEnabledChange: () => { if (!params.playing) applyFrame(params.scrub * CLIP_END); },
+  });
+
+  // Dev-only inspection hook (stripped from production builds) for headless
+  // screenshot/clip tooling: freeze, scrub to a frame, and move the camera.
+  if (import.meta.env.DEV) {
+    window.__dbg = {
+      bones, rest, camera, controls, params, editor, kick,
+      frame(s) { params.playing = false; params.scrub = s; applyFrame(s * CLIP_END); },
+      view(px, py, pz, tx, ty, tz) {
+        camera.position.set(px, py, pz); controls.target.set(tx, ty, tz); controls.update();
+      },
+    };
+  }
 
   document.getElementById('loading').style.opacity = '0';
 });
 
 function applyFrame(tt) {
-  kick.update(tt, params);
-  // Strike the ball as we cross contact.
-  if (!launched && tt >= CONTACT_T) launchBall();
-  if (launched && tt < CONTACT_T) resetBall();
+  if (editor && editor.enabled) {
+    // Editor drives the rig from its keyframes; ball is paused while authoring.
+    editor.applyAt(Math.min(Math.max(tt / CLIP_END, 0), 1));
+  } else {
+    kick.update(tt, params);
+    // Strike the ball as we cross contact.
+    if (!launched && tt >= CONTACT_T) launchBall();
+    if (launched && tt < CONTACT_T) resetBall();
+  }
   const phase = kick.phaseLabel(tt);
   annotations.update(phase, kick.computeLaunch(params), params);
 }
