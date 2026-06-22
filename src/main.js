@@ -67,6 +67,18 @@ loadCharacter(scene).then(({ model, bones, rest }) => {
   kick = new KickAnimation({ model, bones, rest });
   annotations = new Annotations(scene, ball);
 
+  // Dev-only inspection hook (stripped from production builds) for headless
+  // screenshot/clip tooling: freeze, scrub to a frame, and move the camera.
+  if (import.meta.env.DEV) {
+    window.__dbg = {
+      bones, rest, camera, controls, params,
+      frame(s) { params.playing = false; params.scrub = s; applyFrame(s * CLIP_END); },
+      view(px, py, pz, tx, ty, tz) {
+        camera.position.set(px, py, pz); controls.target.set(tx, ty, tz); controls.update();
+      },
+    };
+  }
+
   createPanel({
     onChange: () => { if (!params.playing) applyFrame(params.scrub * CLIP_END); },
     onReplay: () => { t = 0; resetBall(); params.playing = true; },
