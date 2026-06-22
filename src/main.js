@@ -10,6 +10,10 @@ import { params } from './kick/parameters.js';
 const SECONDS_FULL = 2.4; // wall-clock seconds for the whole 0..CLIP_END clip
 const GRAVITY = 9.81;
 
+// Build stamp (injected by Vite) so the live page shows which build is loaded.
+const buildEl = document.getElementById('build');
+if (buildEl) buildEl.textContent = `build ${__BUILD__}`;
+
 const { renderer, labelRenderer, scene, camera, controls } = createScene();
 const { ball } = createField(scene);
 
