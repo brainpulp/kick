@@ -1,0 +1,19 @@
+{
+  "name": "kick",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Browser 3D tutorial that teaches soccer striking via a tunable kick animation with 3D annotations.",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "three": "^0.169.0",
+    "lil-gui": "^0.20.0"
+  },
+  "devDependencies": {
+    "vite": "^5.4.0"
+  }
+}
