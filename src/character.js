@@ -35,7 +35,9 @@ export async function loadCharacter(scene, manifestUrl = 'assets/manifest.json')
   model.traverse((o) => {
     if (o.isMesh) { o.castShadow = true; o.frustumCulled = false; }
     if (o.isBone || o.type === 'Bone') {
-      const short = o.name.replace(/^rig:/, '');
+      // three.js sanitizes node names and strips reserved chars like ':',
+      // so the GLB's "rig:RightLeg" arrives here as "rigRightLeg". Tolerate both.
+      const short = o.name.replace(/^rig:?/, '');
       if (BONES.includes(short)) {
         bones[short] = o;
         rest[short] = o.quaternion.clone();
