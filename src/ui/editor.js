@@ -19,10 +19,11 @@ export const KEY_DEFS = [
 // is a per-bone local-Euler delta (degrees) on top of the bind/rest pose, the
 // same convention the procedural kick uses, so we can seed the editor from it.
 export class PoseEditor {
-  constructor({ bones, rest, boneNames }) {
+  constructor({ bones, rest, boneNames, build }) {
     this.bones = bones;
     this.rest = rest;
     this.names = boneNames.filter((n) => bones[n]);
+    this.build = build || 'dev';
     this.enabled = false;
     this.keys = [];                 // [{ t, pose: { bone: [x,y,z] } }]
     this.working = this.zeroPose(); // live pose being shown/edited
@@ -30,7 +31,7 @@ export class PoseEditor {
     this._lastT = -1;
     this.activeIndex = -1;          // keyframe currently parked on (for the timeline)
     this.onPoseChange = null;       // GUI hook to refresh the axis sliders
-    this.load();
+    this.loadLocal();
   }
 
   zeroPose() { const p = {}; for (const n of this.names) p[n] = [0, 0, 0]; return p; }
@@ -145,11 +146,22 @@ export class PoseEditor {
     this.sort(); this._lastT = -1; this.save();
   }
 
-  save() { try { localStorage.setItem(STORE, JSON.stringify(this.keys)); } catch { /* ignore */ } }
-  load() { try { const s = localStorage.getItem(STORE); if (s) this.keys = JSON.parse(s); } catch { /* ignore */ } }
+  // Replace all keyframes (e.g. from the published clip or a loaded file).
+  setKeys(keys) { this.keys = (keys || []).map((k) => ({ t: k.t, label: k.label, pose: k.pose })); this.sort(); this._lastT = -1; this.save(); }
+
+  // localStorage is tagged with the build: a new deploy supersedes stale local
+  // edits, so my published clip wins on your next load — no clobbering.
+  save() { try { localStorage.setItem(STORE, JSON.stringify({ build: this.build, keys: this.keys })); } catch { /* ignore */ } }
+  loadLocal() {
+    try {
+      const o = JSON.parse(localStorage.getItem(STORE) || 'null');
+      if (o && o.build === this.build && Array.isArray(o.keys)) { this.keys = o.keys; return true; }
+    } catch { /* ignore */ }
+    return false;
+  }
 
   exportJSON() { return JSON.stringify({ clipEnd: CLIP_END, names: this.names, keys: this.keys }, null, 2); }
-  importJSON(str) { const o = JSON.parse(str); this.keys = o.keys || []; this.sort(); this._lastT = -1; this.save(); }
+  importJSON(str) { const o = JSON.parse(str); this.setKeys(o.keys); }
 }
 
 // Build the lil-gui controls for the editor inside an existing GUI.
@@ -191,13 +203,18 @@ export function buildEditorGUI(gui, editor, hooks) {
     seed() { editor.seedKeys(hooks.kick, hooks.params); editor._lastT = -1; refreshInfo(); if (hooks.onSeed) hooks.onSeed(); },
     clear() { editor.clear(); refreshInfo(); },
     export() {
-      const blob = new Blob([editor.exportJSON()], { type: 'application/json' });
+      const json = editor.exportJSON();
+      const blob = new Blob([json], { type: 'application/json' });
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob); a.download = 'kick-clip.json'; a.click();
       URL.revokeObjectURL(a.href);
+      if (navigator.clipboard) navigator.clipboard.writeText(json).then(
+        () => alert('Clip copied to clipboard (and downloaded) — paste it to Claude.'),
+        () => {/* download still happened */});
       // eslint-disable-next-line no-console
-      console.log(editor.exportJSON());
+      console.log(json);
     },
+    revert() { if (hooks.onRevert) hooks.onRevert(refreshInfo); },
     load() {
       const input = document.createElement('input');
       input.type = 'file'; input.accept = 'application/json';
@@ -210,11 +227,13 @@ export function buildEditorGUI(gui, editor, hooks) {
       input.click();
     },
   };
+  f.add(hooks.params, 'useClip').name('▶ Play authored clip');
   f.add(actions, 'setKey').name('◆ Set keyframe @ time');
   f.add(actions, 'delKey').name('✕ Delete keyframe @ time');
   f.add(actions, 'seed').name('↻ Seed from current kick');
+  f.add(actions, 'revert').name('⟳ Revert to published');
   f.add(actions, 'clear').name('🗑 Clear all keys');
-  f.add(actions, 'export').name('⬇ Export clip JSON');
+  f.add(actions, 'export').name('⬇ Export clip (→ clipboard)');
   f.add(actions, 'load').name('⬆ Load clip JSON');
   const ck = f.add(info, 'keys').name('Keyframes (t)').disable();
   refreshInfo();

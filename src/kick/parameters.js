@@ -42,6 +42,7 @@ export const params = {
   playing: true,
   speed: 1.0,
   scrub: 0.0, // 0..1 of the full clip (incl. follow-through), set while paused
+  useClip: true, // play the authored keyframe clip (vs the procedural kick)
 };
 
 // GUI metadata: ranges + units, keyed by param name.
