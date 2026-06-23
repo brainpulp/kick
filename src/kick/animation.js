@@ -3,7 +3,7 @@ import * as THREE from 'three';
 const DEG = Math.PI / 180;
 const lerp = THREE.MathUtils.lerp;
 export const CONTACT_T = 1.0;   // normalized time of ball contact
-export const CLIP_END = 1.3;    // includes follow-through / recovery
+export const CLIP_END = 1.45;   // 3-step run-up + strike + held-gaze follow-through
 
 // Smoothstep-interpolated keyframe sampler. frames: [[t, value], ...] sorted.
 function sample(frames, t) {
@@ -91,69 +91,71 @@ export class KickAnimation {
     const K = right ? 'Right' : 'Left';   // kicking side
     const S = right ? 'Left' : 'Right';   // support / plant side
     const mir = right ? 1 : -1;
-    const power = p.followThrough === 'power';
 
-    // ---- parameter-derived shaping (this is what makes the sliders bite) ----
-    const whip = p.whip;                                   // 0..1
-    // Knee bend at contact: whip straightens it; Knee-Aim ahead(+) bends it
-    // (knee over ball = low drive), behind(-) straightens it (loft).
-    const contactKnee = clamp(lerp(34, 2, whip) + p.kneeAim * 1.2, 0, 70);
-    const backDepth = 1 + p.aimSupportDepth / 25;          // 1..2 backswing scale
+    const whip = p.whip;
+    // Knee bend at contact (knee over the ball); whip straightens it a little.
+    const contactKnee = clamp(lerp(30, 8, whip) + p.kneeAim * 1.2, 0, 60);
+    const backDepth = 1 + p.aimSupportDepth / 25;          // backswing scale
     const loft = p.ballZone === 'below-center';
-    const off = p.ballZone === 'off-center';
-    // Foot roll for inside/outside contact surface (deg, local Z).
-    const footRoll = p.footZone === 'inside' ? 20 : p.footZone === 'outside' ? -20 : 0;
+    const footRoll = p.footZone === 'inside' ? 18 : p.footZone === 'outside' ? -18 : 0;
 
-    // ---- kicking leg: load back, then explosive whip through the ball ----
-    const hipFollow = power ? 78 : 46;
+    // ---- 3-step run-up gait (blends out by the plant at ~0.62) ----
+    const gait = clamp((0.62 - t) / 0.12, 0, 1);
+    const ph = (t / 0.62) * Math.PI * 3;     // three strides
+    const s = Math.sin(ph);
+    const liftK = Math.max(0, s) * gait;     // kicking leg swing phase
+    const liftS = Math.max(0, -s) * gait;    // support leg swing phase
+    const armGait = s * 22 * gait;
+    const bob = Math.abs(s) * 0.015 * gait;
+
+    // ---- kicking leg: run -> cock back/out -> whip through (knee over ball) ----
+    const hipFollow = p.followThrough === 'power' ? 72 : 50;
     const kickHip = sample([
-      [0, 4], [0.5, 6], [0.65, -16 * backDepth], [0.80, -40 * backDepth],
-      [0.92, 6], [1.0, 32], [1.12, hipFollow], [1.3, 28],
+      [0, 2], [0.62, -6], [0.74, -18 * backDepth], [0.88, -44 * backDepth],
+      [0.96, 4], [1.0, 26], [1.12, hipFollow], [1.25, 56], [1.45, 40],
+    ], t) + liftK * 30;
+    const kickAcross = sample([[0, 0], [0.74, -16], [0.88, -30], [1.0, 6], [1.18, 22], [1.45, 12]], t);
+    const kickKnee = sample([            // applied as -X (flexion)
+      [0, 16], [0.62, 26], [0.88, 120], [0.95, contactKnee + 12], [1.0, contactKnee],
+      [1.12, 8], [1.25, 34], [1.45, 24],
+    ], t) + liftK * 64;
+    // Ankle "opens" (dorsiflexes) on the cock-back, then locks plantarflexed from
+    // just before contact through the whole follow-through.
+    const kickAnkle = sample([
+      [0, 4], [0.74, -12], [0.86, -12], [0.94, p.lockAnkle], [1.05, p.lockAnkle], [1.45, p.lockAnkle * 0.7],
     ], t);
-    // Hip abduction/adduction: the leg cocks back AND out to the side during the
-    // backswing (so it's not hidden behind the body), then whips across the
-    // midline through the follow-through (read from the reference footage).
-    const kickAcross = sample([[0, 0], [0.65, -14], [0.80, -28], [1.0, 4], [1.18, 22], [1.3, 10]], t);
-    const kickKnee = sample([            // applied as -X (flexion: heel toward seat)
-      [0, 18], [0.6, 28], [0.80, 122], [0.93, contactKnee + 14], [1.0, contactKnee],
-      [1.12, power ? 4 : 46], [1.3, 24],
-    ], t);
-    const kickAnkle = sample([           // +X plantarflexion, locked windup -> contact
-      [0, 8], [0.75, p.lockAnkle], [1.05, p.lockAnkle], [1.3, 12],
-    ], t);
-    const ankleRoll = sample([[0, 0], [0.82, footRoll], [1.05, footRoll], [1.3, 0]], t);
+    const ankleRoll = sample([[0, 0], [0.86, footRoll], [1.05, footRoll], [1.45, 0]], t);
 
-    // ---- support / plant leg: bends to absorb load, stays put ----
-    const supportKnee = sample([[0, 10], [0.7, 14], [0.85, 30], [1.0, 30], [1.15, 22], [1.3, 14]], t);
-    const supportHip = sample([[0, 8], [0.85, 18], [1.0, 16], [1.3, 10]], t);
+    // ---- support / plant leg: plants ~10deg bent, then pushes off the ground ----
+    const supportKnee = sample([
+      [0, 12], [0.62, 16], [0.74, 10], [0.9, 14], [1.0, 16], [1.1, 6], [1.25, 8], [1.45, 14],
+    ], t) + liftS * 64;
+    const supportHip = sample([[0, 8], [0.62, 12], [0.74, 14], [1.0, 16], [1.12, 6], [1.45, 10]], t) + liftS * 30;
 
     // ---- pelvis + spine ----
-    const hipTurn = p.hipTurn;
-    // Pelvis stays almost fixed (keeps the plant foot grounded); the "hip turn"
-    // reads through the trunk separation below.
-    const pelvisYaw = sample([[0, 0], [0.8, -4], [1.0, 4], [1.3, 2]], t);
-    const lean = sample([[0, 7], [0.6, 12], [0.85, 18], [1.0, 21], [1.15, 17], [1.3, 12]], t)
-      + (loft ? sample([[0, 0], [0.9, -20], [1.05, -20], [1.3, -9]], t) : 0); // lean back to get under the ball
-    const tilt = sample([[0, 0], [0.7, 0], [0.9, p.tilt], [1.05, p.tilt], [1.3, p.tilt * 0.5]], t);
-    // Trunk separation: wind up against the target, snap through at contact.
-    const twist = sample([[0, 0], [0.80, -(10 + hipTurn * 0.6)], [1.0, (8 + hipTurn * 0.5)], [1.3, hipTurn * 0.2]], t);
-    const neck = sample([[0, 6], [0.8, 22], [1.05, 20], [1.3, 12]], t);
+    // Hip opens ~30deg as the ball is struck (plant foot has left the ground).
+    const pelvisYaw = sample([[0, 0], [0.74, -6], [0.9, -8], [1.0, 30], [1.15, 34], [1.45, 24]], t);
+    // Trunk bends ~25deg forward over the ball at contact.
+    const lean = sample([[0, 6], [0.5, 8], [0.74, 12], [0.9, 18], [1.0, 25], [1.15, 24], [1.3, 19], [1.45, 14]], t)
+      + (loft ? sample([[0, 0], [0.95, -16], [1.1, -16], [1.45, -8]], t) : 0);
+    // Whole body tilted toward the kicking (right) side: -Z lean for a right-footer.
+    const tiltRight = sample([[0, 0], [0.62, 8], [0.74, 16], [1.0, 18], [1.25, 12], [1.45, 8]], t);
+    const twist = sample([[0, 0], [0.88, -12], [1.0, 10], [1.25, 16], [1.45, 8]], t);
+    // Gaze locked on the ball — held through contact and ~1s of follow-through.
+    const gaze = sample([[0, 8], [0.5, 16], [0.74, 24], [1.0, 27], [1.28, 27], [1.45, 20]], t);
 
-    // ---- arms: wide athletic balance, alternating with the swing ----
-    // (matched to the reference: at backswing the kicking-side arm is flung
-    // wide while the support arm reaches down over the ball; they swap through.)
-    const swing = 0.85 + 0.35 * whip + hipTurn / 160;
-    // Kicking-side arm: big abduction (out to the side) at backswing.
-    const kArmAbd = sample([[0, 16], [0.55, 32], [0.80, 84], [1.0, 58], [1.18, 36], [1.3, 28]], t) * swing;
-    const kArmSwing = sample([[0, -6], [0.80, -26], [1.0, -6], [1.18, 20], [1.3, 8]], t); // X: back -> forward
-    const kElbow = sample([[0, 16], [0.8, 34], [1.3, 24]], t);
-    // Support-side arm: reaches down/forward over the ball, then flings wide.
-    const cArmAbd = sample([[0, 16], [0.80, 28], [1.0, 62], [1.18, 44], [1.3, 30]], t) * swing;
-    const cArmFwd = sample([[0, 8], [0.80, 40], [1.0, 16], [1.3, 6]], t) * swing;
-    const cElbow = sample([[0, 18], [0.9, 46], [1.3, 28]], t);
+    // ---- arms ----
+    // Contact: opposite (support-side) arm flies up & away ~45deg; kicking-side
+    // arm stays down (not back). Plus an alternating swing during the run-up.
+    const cArmAbd = sample([[0, 16], [0.62, 26], [0.85, 42], [1.0, 78], [1.15, 70], [1.45, 34]], t);
+    const cArmFwd = sample([[0, 6], [1.0, 12], [1.45, 6]], t) + armGait;
+    const cElbow = sample([[0, 18], [0.9, 40], [1.45, 28]], t);
+    const kArmAbd = sample([[0, 14], [0.85, 22], [1.0, 12], [1.45, 16]], t);
+    const kArmSwing = sample([[0, 0], [0.85, 8], [1.0, 2], [1.45, 4]], t) - armGait;
+    const kElbow = sample([[0, 16], [0.9, 30], [1.45, 24]], t);
 
     // ---- apply to bones ----
-    this.applyBone(`${K}UpLeg`, kickHip * DEG, 0, ((off ? 8 : 0) + kickAcross) * mir * DEG);
+    this.applyBone(`${K}UpLeg`, kickHip * DEG, 0, kickAcross * mir * DEG);
     this.applyBone(`${K}Leg`, -kickKnee * DEG, 0, 0);
     this.applyBone(`${K}Foot`, kickAnkle * DEG, 0, ankleRoll * mir * DEG);
     this.applyBone(`${S}UpLeg`, supportHip * DEG, 0, -5 * mir * DEG);
@@ -161,10 +163,10 @@ export class KickAnimation {
 
     this.applyBone('Hips', 0, pelvisYaw * mir * DEG, 0);
     for (const seg of ['Spine', 'Spine1', 'Spine2']) {
-      this.applyBone(seg, (lean / 3) * DEG, (twist / 3) * mir * DEG, (tilt / 3) * mir * DEG);
+      this.applyBone(seg, (lean / 3) * DEG, (twist / 3) * mir * DEG, (-tiltRight / 3) * mir * DEG);
     }
-    this.applyBone('Neck', neck * 0.6 * DEG, 0, 0);
-    this.applyBone('Head', neck * 0.4 * DEG, 0, 0);
+    this.applyBone('Neck', gaze * 0.6 * DEG, 0, 0);
+    this.applyBone('Head', gaze * 0.4 * DEG, 0, 0);
 
     // Abduction is +Z on the right arm, -Z on the left (hence the -mir on the
     // support side). X swings the arm fore/aft.
@@ -173,19 +175,21 @@ export class KickAnimation {
     this.applyBone(`${K}Arm`, kArmSwing * DEG, 0, kArmAbd * mir * DEG);
     this.applyBone(`${K}ForeArm`, 0, kElbow * mir * DEG, 0);
 
-    // ---- root: weight travels forward through the strike (a step-through) ----
-    const comFwd = sample([[0, 0], [0.85, 0], [1.0, 0.06], [1.15, power ? 0.26 : 0.12], [1.3, power ? 0.34 : 0.16]], t);
-    this.model.position.set(this.base.x, this.base.y, this.base.z - comFwd);
+    // ---- root: 3-step approach in, then spring/step through; plant foot lifts ----
+    const bz = this.base.z;
+    const posZ = sample([[0, bz + 1.5], [0.6, bz], [0.74, bz], [1.0, bz - 0.06], [1.25, bz - 0.42], [1.45, bz - 0.44]], t);
+    const posY = this.base.y + bob
+      + sample([[0, 0], [1.0, 0], [1.08, 0.05], [1.2, 0.12], [1.45, 0.06]], t); // push off after contact
+    this.model.position.set(this.base.x, posY, posZ);
   }
 
   phaseLabel(t) {
-    if (t < 0.55) return 'Runup';
-    if (t < 0.7) return 'Hop';
-    if (t < 0.8) return 'Plant';
-    if (t < 0.88) return 'Pre-Load';
-    if (t < 0.95) return 'Hip Turn';
-    if (t < 1.0) return 'Whip';
-    if (t < 1.04) return 'Contact';
-    return 'Follow-Through';
+    if (t < 0.55) return 'Run-up';
+    if (t < 0.74) return 'Plant';
+    if (t < 0.9) return 'Cock-back';
+    if (t < 1.0) return 'Strike';
+    if (t < 1.06) return 'Contact';
+    if (t < 1.3) return 'Follow-through';
+    return 'Hold gaze';
   }
 }
