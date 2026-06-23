@@ -4,7 +4,8 @@ import { createField, BALL_RADIUS } from './field.js';
 import { loadCharacter } from './character.js';
 import { KickAnimation, CONTACT_T, CLIP_END } from './kick/animation.js';
 import { createPanel } from './ui/panel.js';
-import { PoseEditor, buildEditorGUI, attachGizmo } from './ui/editor.js';
+import { PoseEditor, buildEditorGUI, attachGizmo, KEY_DEFS } from './ui/editor.js';
+import { createTimeline } from './ui/timeline.js';
 import { Annotations } from './ui/annotations.js';
 import { params } from './kick/parameters.js';
 import { BONES } from './character.js';
@@ -19,7 +20,7 @@ if (buildEl) buildEl.textContent = `build ${__BUILD__}`;
 const { renderer, labelRenderer, scene, camera, controls } = createScene();
 const { ball } = createField(scene);
 
-let kick = null, annotations = null, editor = null, gizmo = null;
+let kick = null, annotations = null, editor = null, gizmo = null, timeline = null;
 let t = 0;                 // normalized clip time 0..CLIP_END
 let launched = false;      // has the ball been struck this cycle
 const ballVel = new THREE.Vector3();
@@ -78,9 +79,32 @@ loadCharacter(scene).then(({ model, bones, rest }) => {
     onChange: () => { if (!params.playing) applyFrame(params.scrub * CLIP_END); },
     onReplay: () => { t = 0; resetBall(); params.playing = true; },
   });
+  // Seed the 12 structured keyframes on first run (unless a saved clip exists).
+  if (!editor.keys.length) editor.seedKeys(kick, params, KEY_DEFS);
+
+  function jumpToKey(i) {
+    const k = editor.keys[i]; if (!k) return;
+    params.playing = false;
+    editor.enabled = true;
+    gizmo.setEnabled(true);
+    editor.activeIndex = i;
+    params.scrub = k.t;
+    applyFrame(k.t * CLIP_END);
+    timeline.setActive(i);
+  }
+
+  timeline = createTimeline({
+    defs: KEY_DEFS,
+    onJump: jumpToKey,
+    onPrev: () => jumpToKey(Math.max(0, (editor.activeIndex < 0 ? 1 : editor.activeIndex) - 1)),
+    onNext: () => jumpToKey(Math.min(editor.keys.length - 1, editor.activeIndex + 1)),
+    onPlay: () => { params.playing = !params.playing; if (params.playing) { t = params.scrub * CLIP_END; resetBall(); } },
+  });
+
   buildEditorGUI(gui, editor, {
     kick, params, gizmo,
     onEnabledChange: () => { if (!params.playing) applyFrame(params.scrub * CLIP_END); },
+    onSeed: () => { editor.activeIndex = -1; timeline.setActive(-1); },
   });
 
   // Dev-only inspection hook (stripped from production builds) for headless
@@ -131,6 +155,7 @@ function animate() {
   }
 
   if (gizmo) gizmo.update();
+  if (timeline) timeline.update(params.scrub);
   controls.update();
   renderer.render(scene, camera);
   labelRenderer.render(scene, camera);

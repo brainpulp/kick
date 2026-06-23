@@ -4,7 +4,15 @@ import { CLIP_END } from '../kick/animation.js';
 
 const DEG = Math.PI / 180;
 const smooth = (u) => u * u * (3 - 2 * u);
-const STORE = 'kickClip.v1';
+const STORE = 'kickClip.v2';
+
+// The 12 structured keyframes the timeline exposes (normalized 0..1 of the clip).
+export const KEY_DEFS = [
+  { t: 0.00, label: 'Start' }, { t: 0.10, label: 'Step 1' }, { t: 0.24, label: 'Step 2' },
+  { t: 0.40, label: 'Step 3' }, { t: 0.51, label: 'Plant' }, { t: 0.60, label: 'Cock' },
+  { t: 0.66, label: 'Load' }, { t: 0.69, label: 'Contact' }, { t: 0.75, label: 'Post' },
+  { t: 0.83, label: 'Follow' }, { t: 0.91, label: 'Recover' }, { t: 1.00, label: 'Hold' },
+];
 
 // In-browser pose/keyframe editor. The animation is a list of full-body pose
 // keyframes at normalized times t in [0,1] (× CLIP_END = clip time). Each pose
@@ -20,6 +28,7 @@ export class PoseEditor {
     this.working = this.zeroPose(); // live pose being shown/edited
     this.selected = this.names[0];
     this._lastT = -1;
+    this.activeIndex = -1;          // keyframe currently parked on (for the timeline)
     this.onPoseChange = null;       // GUI hook to refresh the axis sliders
     this.load();
   }
@@ -70,8 +79,15 @@ export class PoseEditor {
     this.poseBones(this.working);
   }
 
-  setEuler(axis, deg) { this.working[this.selected][axis] = deg; this.poseBones(this.working); }
+  setEuler(axis, deg) { this.working[this.selected][axis] = deg; this.poseBones(this.working); this.commitIfParked(); }
   getEuler() { return this.working[this.selected]; }
+
+  // If we're parked exactly on a keyframe, posing auto-updates that keyframe
+  // (so "position the character at each keyframe" persists with no extra click).
+  commitIfParked() {
+    const i = this.keys.findIndex((k) => Math.abs(k.t - this._lastT) < 1e-3);
+    if (i >= 0) { this.keys[i].pose = this.clonePose(this.working); this.activeIndex = i; this.save(); }
+  }
 
   // Read a bone's current local rotation back into the working pose as an
   // Euler delta from its rest pose (used when a 3D gizmo rotates the bone).
@@ -80,6 +96,25 @@ export class PoseEditor {
     const q = this.rest[name].clone().invert().multiply(b.quaternion);
     const e = new THREE.Euler().setFromQuaternion(q, 'XYZ');
     this.working[name] = [e.x / DEG, e.y / DEG, e.z / DEG];
+    this.commitIfParked();
+  }
+
+  // Seed structured, labelled keyframes by sampling the procedural kick.
+  seedKeys(kick, params, defs = KEY_DEFS) {
+    this.keys = [];
+    const inv = new THREE.Quaternion();
+    for (const d of defs) {
+      kick.update(d.t * CLIP_END, params);
+      const pose = {};
+      for (const n of this.names) {
+        const b = this.bones[n];
+        inv.copy(this.rest[n]).invert().multiply(b.quaternion);
+        const e = new THREE.Euler().setFromQuaternion(inv, 'XYZ');
+        pose[n] = [+(e.x / DEG).toFixed(2), +(e.y / DEG).toFixed(2), +(e.z / DEG).toFixed(2)];
+      }
+      this.keys.push({ t: d.t, label: d.label, pose });
+    }
+    this.sort(); this._lastT = -1; this.save();
   }
 
   setKey(t) {
@@ -153,7 +188,7 @@ export function buildEditorGUI(gui, editor, hooks) {
   const actions = {
     setKey() { editor.setKey(+hooks.params.scrub.toFixed(3)); refreshInfo(); },
     delKey() { editor.delKey(+hooks.params.scrub.toFixed(3)); refreshInfo(); },
-    seed() { editor.seedFrom(hooks.kick, hooks.params); editor._lastT = -1; refreshInfo(); },
+    seed() { editor.seedKeys(hooks.kick, hooks.params); editor._lastT = -1; refreshInfo(); if (hooks.onSeed) hooks.onSeed(); },
     clear() { editor.clear(); refreshInfo(); },
     export() {
       const blob = new Blob([editor.exportJSON()], { type: 'application/json' });

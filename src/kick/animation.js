@@ -99,26 +99,33 @@ export class KickAnimation {
     const loft = p.ballZone === 'below-center';
     const footRoll = p.footZone === 'inside' ? 18 : p.footZone === 'outside' ? -18 : 0;
 
-    // ---- 3-step run-up gait (blends out by the plant at ~0.62) ----
-    const gait = clamp((0.62 - t) / 0.12, 0, 1);
-    const ph = (t / 0.62) * Math.PI * 3;     // three strides
-    const s = Math.sin(ph);
-    const liftK = Math.max(0, s) * gait;     // kicking leg swing phase
-    const liftS = Math.max(0, -s) * gait;    // support leg swing phase
-    const armGait = s * 22 * gait;
-    const bob = Math.abs(s) * 0.015 * gait;
+    // ---- 3-step run-up: foot-falls L, R, then L plants beside the ball ----
+    // A swinging leg lifts (knee bends) and reaches to the next foot-fall; a
+    // planted leg sweeps from front to back as the body passes over it. The root
+    // (below) advances in held steps so the planted foot doesn't slide.
+    const stride = (a, b) => {            // swing window -> lifted/reaching leg
+      if (t < a || t > b) return null;
+      const u = (t - a) / (b - a);
+      return { hip: lerp(-20, 26, u), knee: 10 + 60 * Math.sin(Math.PI * u) };
+    };
+    const sweep = (a, b) => ({ hip: lerp(22, -22, clamp((t - a) / (b - a), 0, 1)), knee: 8 });
+    const runFade = clamp((t - 0.50) / 0.10, 0, 1);   // 0 during run-up, 1 after plant
+    const runK = stride(0.16, 0.32) || (t < 0.16 ? sweep(0.0, 0.16) : sweep(0.32, 0.55));
+    const runS = stride(0.0, 0.14) || stride(0.34, 0.52) || sweep(0.14, 0.34);
+    const armGait = Math.sin((t / 0.55) * Math.PI * 3) * 20 * (1 - runFade);
+    const runBob = Math.abs(Math.sin((t / 0.55) * Math.PI * 3)) * 0.02 * (1 - runFade);
 
-    // ---- kicking leg: run -> cock back/out -> whip through (knee over ball) ----
+    // ---- kicking leg: cock back/out -> whip through (knee over ball) ----
     const hipFollow = p.followThrough === 'power' ? 72 : 50;
-    const kickHip = sample([
+    const kickHip = lerp(runK.hip, sample([
       [0, 2], [0.62, -6], [0.74, -18 * backDepth], [0.88, -44 * backDepth],
       [0.96, 4], [1.0, 26], [1.12, hipFollow], [1.25, 56], [1.45, 40],
-    ], t) + liftK * 30;
-    const kickAcross = sample([[0, 0], [0.74, -16], [0.88, -30], [1.0, 6], [1.18, 22], [1.45, 12]], t);
-    const kickKnee = sample([            // applied as -X (flexion)
+    ], t), runFade);
+    const kickAcross = sample([[0, 0], [0.74, -16], [0.88, -30], [1.0, 6], [1.18, 22], [1.45, 12]], t) * runFade;
+    const kickKnee = lerp(runK.knee, sample([     // applied as -X (flexion)
       [0, 16], [0.62, 26], [0.88, 120], [0.95, contactKnee + 12], [1.0, contactKnee],
       [1.12, 8], [1.25, 34], [1.45, 24],
-    ], t) + liftK * 64;
+    ], t), runFade);
     // Ankle "opens" (dorsiflexes) on the cock-back, then locks plantarflexed from
     // just before contact through the whole follow-through.
     const kickAnkle = sample([
@@ -127,10 +134,10 @@ export class KickAnimation {
     const ankleRoll = sample([[0, 0], [0.86, footRoll], [1.05, footRoll], [1.45, 0]], t);
 
     // ---- support / plant leg: plants ~10deg bent, then pushes off the ground ----
-    const supportKnee = sample([
+    const supportKnee = lerp(runS.knee, sample([
       [0, 12], [0.62, 16], [0.74, 10], [0.9, 14], [1.0, 16], [1.1, 6], [1.25, 8], [1.45, 14],
-    ], t) + liftS * 64;
-    const supportHip = sample([[0, 8], [0.62, 12], [0.74, 14], [1.0, 16], [1.12, 6], [1.45, 10]], t) + liftS * 30;
+    ], t), runFade);
+    const supportHip = lerp(runS.hip, sample([[0, 8], [0.62, 12], [0.74, 14], [1.0, 16], [1.12, 6], [1.45, 10]], t), runFade);
 
     // ---- pelvis + spine ----
     // Hip opens ~30deg as the ball is struck (plant foot has left the ground).
@@ -175,10 +182,15 @@ export class KickAnimation {
     this.applyBone(`${K}Arm`, kArmSwing * DEG, 0, kArmAbd * mir * DEG);
     this.applyBone(`${K}ForeArm`, 0, kElbow * mir * DEG, 0);
 
-    // ---- root: 3-step approach in, then spring/step through; plant foot lifts ----
+    // ---- root: advance in 3 held steps (still during each stance so the
+    // planted foot doesn't slide), then step/spring through the strike ----
     const bz = this.base.z;
-    const posZ = sample([[0, bz + 1.5], [0.6, bz], [0.74, bz], [1.0, bz - 0.06], [1.25, bz - 0.42], [1.45, bz - 0.44]], t);
-    const posY = this.base.y + bob
+    const posZ = sample([
+      [0, bz + 1.35], [0.10, bz + 1.35], [0.20, bz + 0.90], [0.28, bz + 0.90],
+      [0.38, bz + 0.45], [0.46, bz + 0.45], [0.55, bz], [0.74, bz],
+      [1.0, bz - 0.06], [1.25, bz - 0.42], [1.45, bz - 0.44],
+    ], t);
+    const posY = this.base.y + runBob
       + sample([[0, 0], [1.0, 0], [1.08, 0.05], [1.2, 0.12], [1.45, 0.06]], t); // push off after contact
     this.model.position.set(this.base.x, posY, posZ);
   }
