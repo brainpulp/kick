@@ -105,11 +105,15 @@ export class KickAnimation {
     const footRoll = p.footZone === 'inside' ? 20 : p.footZone === 'outside' ? -20 : 0;
 
     // ---- kicking leg: load back, then explosive whip through the ball ----
-    const hipFollow = power ? 70 : 42;
+    const hipFollow = power ? 78 : 46;
     const kickHip = sample([
-      [0, 4], [0.5, 6], [0.65, -14 * backDepth], [0.80, -34 * backDepth],
-      [0.92, 6], [1.0, 30], [1.12, hipFollow], [1.3, 26],
+      [0, 4], [0.5, 6], [0.65, -16 * backDepth], [0.80, -40 * backDepth],
+      [0.92, 6], [1.0, 32], [1.12, hipFollow], [1.3, 28],
     ], t);
+    // Hip abduction/adduction: the leg cocks back AND out to the side during the
+    // backswing (so it's not hidden behind the body), then whips across the
+    // midline through the follow-through (read from the reference footage).
+    const kickAcross = sample([[0, 0], [0.65, -14], [0.80, -28], [1.0, 4], [1.18, 22], [1.3, 10]], t);
     const kickKnee = sample([            // applied as -X (flexion: heel toward seat)
       [0, 18], [0.6, 28], [0.80, 122], [0.93, contactKnee + 14], [1.0, contactKnee],
       [1.12, power ? 4 : 46], [1.3, 24],
@@ -128,23 +132,28 @@ export class KickAnimation {
     // Pelvis stays almost fixed (keeps the plant foot grounded); the "hip turn"
     // reads through the trunk separation below.
     const pelvisYaw = sample([[0, 0], [0.8, -4], [1.0, 4], [1.3, 2]], t);
-    const lean = sample([[0, 6], [0.7, 12], [1.0, 14], [1.3, 9]], t)
-      + (loft ? sample([[0, 0], [0.9, -18], [1.05, -18], [1.3, -8]], t) : 0); // lean back to get under the ball
+    const lean = sample([[0, 7], [0.6, 12], [0.85, 18], [1.0, 21], [1.15, 17], [1.3, 12]], t)
+      + (loft ? sample([[0, 0], [0.9, -20], [1.05, -20], [1.3, -9]], t) : 0); // lean back to get under the ball
     const tilt = sample([[0, 0], [0.7, 0], [0.9, p.tilt], [1.05, p.tilt], [1.3, p.tilt * 0.5]], t);
     // Trunk separation: wind up against the target, snap through at contact.
     const twist = sample([[0, 0], [0.80, -(10 + hipTurn * 0.6)], [1.0, (8 + hipTurn * 0.5)], [1.3, hipTurn * 0.2]], t);
     const neck = sample([[0, 6], [0.8, 22], [1.05, 20], [1.3, 12]], t);
 
-    // ---- arms (counter-swing scales with hip turn + whip) ----
-    const swing = 0.7 + 0.4 * whip + hipTurn / 150;
-    const cArmAbd = sample([[0, 18], [0.7, 34], [0.9, 64], [1.05, 54], [1.3, 30]], t) * swing; // support side
-    const cArmFwd = sample([[0, 4], [0.9, 30], [1.3, 12]], t) * swing;
-    const cElbow = sample([[0, 18], [0.9, 50], [1.3, 30]], t);
-    const kArmBack = sample([[0, 10], [0.8, 46], [1.0, 34], [1.3, 16]], t) * swing; // kicking-side arm back/up
-    const kElbow = sample([[0, 16], [0.8, 40], [1.3, 26]], t);
+    // ---- arms: wide athletic balance, alternating with the swing ----
+    // (matched to the reference: at backswing the kicking-side arm is flung
+    // wide while the support arm reaches down over the ball; they swap through.)
+    const swing = 0.85 + 0.35 * whip + hipTurn / 160;
+    // Kicking-side arm: big abduction (out to the side) at backswing.
+    const kArmAbd = sample([[0, 16], [0.55, 32], [0.80, 84], [1.0, 58], [1.18, 36], [1.3, 28]], t) * swing;
+    const kArmSwing = sample([[0, -6], [0.80, -26], [1.0, -6], [1.18, 20], [1.3, 8]], t); // X: back -> forward
+    const kElbow = sample([[0, 16], [0.8, 34], [1.3, 24]], t);
+    // Support-side arm: reaches down/forward over the ball, then flings wide.
+    const cArmAbd = sample([[0, 16], [0.80, 28], [1.0, 62], [1.18, 44], [1.3, 30]], t) * swing;
+    const cArmFwd = sample([[0, 8], [0.80, 40], [1.0, 16], [1.3, 6]], t) * swing;
+    const cElbow = sample([[0, 18], [0.9, 46], [1.3, 28]], t);
 
     // ---- apply to bones ----
-    this.applyBone(`${K}UpLeg`, kickHip * DEG, 0, (off ? 8 * mir : 0) * DEG);
+    this.applyBone(`${K}UpLeg`, kickHip * DEG, 0, ((off ? 8 : 0) + kickAcross) * mir * DEG);
     this.applyBone(`${K}Leg`, -kickKnee * DEG, 0, 0);
     this.applyBone(`${K}Foot`, kickAnkle * DEG, 0, ankleRoll * mir * DEG);
     this.applyBone(`${S}UpLeg`, supportHip * DEG, 0, -5 * mir * DEG);
@@ -157,15 +166,15 @@ export class KickAnimation {
     this.applyBone('Neck', neck * 0.6 * DEG, 0, 0);
     this.applyBone('Head', neck * 0.4 * DEG, 0, 0);
 
-    // Counter arm = support side (abduction is +Z on the right arm, -Z on the
-    // left, hence the -mir); kicking-side arm swings back as counterweight.
+    // Abduction is +Z on the right arm, -Z on the left (hence the -mir on the
+    // support side). X swings the arm fore/aft.
     this.applyBone(`${S}Arm`, cArmFwd * DEG, 0, cArmAbd * -mir * DEG);
     this.applyBone(`${S}ForeArm`, 0, cElbow * -mir * DEG, 0);
-    this.applyBone(`${K}Arm`, -kArmBack * DEG, 0, 22 * mir * DEG);
+    this.applyBone(`${K}Arm`, kArmSwing * DEG, 0, kArmAbd * mir * DEG);
     this.applyBone(`${K}ForeArm`, 0, kElbow * mir * DEG, 0);
 
-    // ---- root: stays planted; only a small weight shift on follow-through ----
-    const comFwd = sample([[0, 0], [1.0, 0], [1.15, power ? 0.10 : 0.04], [1.3, power ? 0.08 : 0.03]], t);
+    // ---- root: weight travels forward through the strike (a step-through) ----
+    const comFwd = sample([[0, 0], [0.85, 0], [1.0, 0.06], [1.15, power ? 0.26 : 0.12], [1.3, power ? 0.34 : 0.16]], t);
     this.model.position.set(this.base.x, this.base.y, this.base.z - comFwd);
   }
 
