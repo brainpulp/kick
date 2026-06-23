@@ -69,18 +69,31 @@ loadCharacter(scene).then(({ model, bones, rest }) => {
 
   kick = new KickAnimation({ model, bones, rest });
   annotations = new Annotations(scene, ball);
-  editor = new PoseEditor({ bones, rest, boneNames: BONES });
+  editor = new PoseEditor({ bones, rest, boneNames: BONES, build: __BUILD__ });
   gizmo = attachGizmo({
     editor, scene, camera, renderer, controls,
     onChange: () => { if (editor.onPoseChange) editor.onPoseChange(); },
   });
 
+  // Shared source of truth: load the published clip file. If this browser has
+  // local edits made against THIS build, keep them; otherwise the published clip
+  // wins (so my deploys supersede stale local edits — no clobbering).
+  const hadLocal = editor.keys.length > 0;
+  async function loadPublished(after) {
+    try {
+      const r = await fetch('assets/kick-clip.json', { cache: 'no-store' });
+      if (r.ok) { const j = await r.json(); if (j.keys && j.keys.length) { editor.setKeys(j.keys); if (after) after(); return true; } }
+    } catch { /* ignore */ }
+    return false;
+  }
+  if (!hadLocal) {
+    loadPublished().then((ok) => { if (!ok && !editor.keys.length) editor.seedKeys(kick, params, KEY_DEFS); });
+  }
+
   const gui = createPanel({
     onChange: () => { if (!params.playing) applyFrame(params.scrub * CLIP_END); },
     onReplay: () => { t = 0; resetBall(); params.playing = true; },
   });
-  // Seed the 12 structured keyframes on first run (unless a saved clip exists).
-  if (!editor.keys.length) editor.seedKeys(kick, params, KEY_DEFS);
 
   function jumpToKey(i) {
     const k = editor.keys[i]; if (!k) return;
@@ -105,6 +118,7 @@ loadCharacter(scene).then(({ model, bones, rest }) => {
     kick, params, gizmo,
     onEnabledChange: () => { if (!params.playing) applyFrame(params.scrub * CLIP_END); },
     onSeed: () => { editor.activeIndex = -1; timeline.setActive(-1); },
+    onRevert: (after) => { loadPublished(() => { editor.activeIndex = -1; timeline.setActive(-1); if (after) after(); }); },
   });
 
   // Dev-only inspection hook (stripped from production builds) for headless
@@ -123,12 +137,16 @@ loadCharacter(scene).then(({ model, bones, rest }) => {
 });
 
 function applyFrame(tt) {
-  if (editor && editor.enabled) {
-    // Editor drives the rig from its keyframes; ball is paused while authoring.
+  // Pose source: editor (while authoring) or the authored clip (playback), else
+  // the procedural kick.
+  const useEditorPose = editor && (editor.enabled || (params.useClip && editor.keys.length));
+  if (useEditorPose) {
     editor.applyAt(Math.min(Math.max(tt / CLIP_END, 0), 1));
   } else {
     kick.update(tt, params);
-    // Strike the ball as we cross contact.
+  }
+  // Strike the ball as we cross contact (skipped while actively authoring).
+  if (!editor.enabled) {
     if (!launched && tt >= CONTACT_T) launchBall();
     if (launched && tt < CONTACT_T) resetBall();
   }
