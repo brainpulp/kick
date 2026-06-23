@@ -44,6 +44,44 @@
         font: 500 11px ui-monospace, monospace; color: #5f9472;
         text-shadow: 0 1px 2px rgba(0,0,0,0.7); pointer-events: none;
       }
+
+      /* Keyframe timeline */
+      #timeline {
+        position: fixed; left: 12px; right: 320px; bottom: 26px; z-index: 6;
+        display: flex; align-items: center; gap: 8px;
+        font: 600 11px system-ui, sans-serif;
+      }
+      #timeline .tl-btn {
+        flex: 0 0 auto; width: 26px; height: 26px; border-radius: 5px;
+        background: rgba(8,26,16,0.9); color: #cdeed8;
+        border: 1px solid rgba(120,230,160,0.4); cursor: pointer;
+      }
+      #timeline .tl-btn:hover { border-color: #8ff0b6; }
+      .tl-track {
+        position: relative; flex: 1 1 auto; height: 34px;
+        background: rgba(8,26,16,0.72); border: 1px solid rgba(120,230,160,0.28);
+        border-radius: 6px;
+      }
+      .tl-playhead {
+        position: absolute; top: -2px; bottom: -2px; width: 2px; left: 0;
+        background: #ffcc33; box-shadow: 0 0 4px #ffcc33; pointer-events: none;
+      }
+      .tl-key {
+        position: absolute; top: 0; transform: translateX(-50%);
+        height: 34px; padding: 0; background: none; border: none; cursor: pointer;
+        display: flex; flex-direction: column; align-items: center; justify-content: center;
+      }
+      .tl-dot {
+        width: 11px; height: 11px; border-radius: 50%;
+        background: #2f6b3a; border: 2px solid #6fe0a0;
+      }
+      .tl-key:hover .tl-dot { background: #6fe0a0; }
+      .tl-key.active .tl-dot { background: #ffcc33; border-color: #ffcc33; }
+      .tl-lbl {
+        margin-top: 2px; color: #9fd9b3; white-space: nowrap; font-size: 9px;
+        opacity: 0.0; transition: opacity .12s;
+      }
+      .tl-key:hover .tl-lbl, .tl-key.active .tl-lbl { opacity: 1; color: #eafff0; }
     </style>
   </head>
   <body>
