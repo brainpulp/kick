@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js';
 import { CLIP_END } from '../kick/animation.js';
 
 const DEG = Math.PI / 180;
@@ -72,6 +73,15 @@ export class PoseEditor {
   setEuler(axis, deg) { this.working[this.selected][axis] = deg; this.poseBones(this.working); }
   getEuler() { return this.working[this.selected]; }
 
+  // Read a bone's current local rotation back into the working pose as an
+  // Euler delta from its rest pose (used when a 3D gizmo rotates the bone).
+  readFromBone(name) {
+    const b = this.bones[name]; if (!b) return;
+    const q = this.rest[name].clone().invert().multiply(b.quaternion);
+    const e = new THREE.Euler().setFromQuaternion(q, 'XYZ');
+    this.working[name] = [e.x / DEG, e.y / DEG, e.z / DEG];
+  }
+
   setKey(t) {
     const e = this.keys.find((k) => Math.abs(k.t - t) < 1e-3);
     if (e) e.pose = this.clonePose(this.working);
@@ -123,11 +133,15 @@ export function buildEditorGUI(gui, editor, hooks) {
 
   f.add(editor, 'enabled').name('✏️ Edit mode').onChange((v) => {
     if (v) { hooks.params.playing = false; hooks.params.scrub = 0; editor._lastT = -1; }
+    if (hooks.gizmo) hooks.gizmo.setEnabled(v);
     if (hooks.onEnabledChange) hooks.onEnabledChange(v);
     refresh();
   });
 
-  f.add(editor, 'selected', editor.names).name('Bone').onChange(refresh);
+  f.add(editor, 'selected', editor.names).name('Bone').onChange(() => {
+    if (hooks.gizmo) hooks.gizmo.select(editor.selected);
+    refresh();
+  });
 
   const cx = f.add(ax, 'x', -180, 180, 1).name('Rotate X°').onChange((v) => editor.setEuler(0, v));
   const cy = f.add(ax, 'y', -180, 180, 1).name('Rotate Y°').onChange((v) => editor.setEuler(1, v));
@@ -171,4 +185,69 @@ export function buildEditorGUI(gui, editor, hooks) {
   refreshInfo();
 
   return f;
+}
+
+// 3D drag-handles: a clickable marker at every driven joint plus a rotate gizmo
+// on the selected one. Rotating the gizmo writes back into the editor's working
+// pose so it can be keyframed. Returns { setEnabled, select, update }.
+export function attachGizmo({ editor, scene, camera, renderer, controls, onChange }) {
+  const bones = editor.bones;
+  const names = editor.names;
+  const raycaster = new THREE.Raycaster();
+  const pointer = new THREE.Vector2();
+  let enabled = false;
+
+  const markerGeo = new THREE.SphereGeometry(0.028, 10, 8);
+  const baseMat = new THREE.MeshBasicMaterial({ color: 0x33ddff, depthTest: false, transparent: true, opacity: 0.85 });
+  const selMat = new THREE.MeshBasicMaterial({ color: 0xffcc33, depthTest: false });
+  const markers = new THREE.Group(); markers.renderOrder = 999; markers.visible = false; scene.add(markers);
+  const markerByName = {};
+  for (const n of names) {
+    const m = new THREE.Mesh(markerGeo, baseMat); m.renderOrder = 999; m.userData.bone = n;
+    markers.add(m); markerByName[n] = m;
+  }
+
+  const tc = new TransformControls(camera, renderer.domElement);
+  tc.setMode('rotate'); tc.setSpace('local'); tc.setSize(0.55);
+  const helper = tc.getHelper ? tc.getHelper() : tc;
+  helper.visible = false; scene.add(helper);
+  tc.addEventListener('dragging-changed', (e) => { controls.enabled = !e.value; });
+  tc.addEventListener('objectChange', () => { editor.readFromBone(editor.selected); if (onChange) onChange(); });
+
+  function select(name) {
+    if (!bones[name]) return;
+    editor.selected = name;
+    tc.attach(bones[name]);
+    helper.visible = enabled;
+    for (const n of names) markerByName[n].material = (n === name) ? selMat : baseMat;
+    if (onChange) onChange();
+  }
+
+  function onPointerDown(ev) {
+    if (!enabled || tc.dragging) return;
+    const r = renderer.domElement.getBoundingClientRect();
+    pointer.x = ((ev.clientX - r.left) / r.width) * 2 - 1;
+    pointer.y = -((ev.clientY - r.top) / r.height) * 2 + 1;
+    raycaster.setFromCamera(pointer, camera);
+    const hits = raycaster.intersectObjects(markers.children, false);
+    if (hits.length) select(hits[0].object.userData.bone);
+  }
+  renderer.domElement.addEventListener('pointerdown', onPointerDown);
+
+  function update() {
+    if (!enabled) return;
+    for (const n of names) {
+      const b = bones[n]; b.updateWorldMatrix(true, false);
+      markerByName[n].position.setFromMatrixPosition(b.matrixWorld);
+    }
+  }
+
+  function setEnabled(v) {
+    enabled = v;
+    markers.visible = v;
+    if (v) { select(editor.selected); update(); }
+    else { tc.detach(); helper.visible = false; }
+  }
+
+  return { setEnabled, select, update };
 }

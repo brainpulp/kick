@@ -4,7 +4,7 @@ import { createField, BALL_RADIUS } from './field.js';
 import { loadCharacter } from './character.js';
 import { KickAnimation, CONTACT_T, CLIP_END } from './kick/animation.js';
 import { createPanel } from './ui/panel.js';
-import { PoseEditor, buildEditorGUI } from './ui/editor.js';
+import { PoseEditor, buildEditorGUI, attachGizmo } from './ui/editor.js';
 import { Annotations } from './ui/annotations.js';
 import { params } from './kick/parameters.js';
 import { BONES } from './character.js';
@@ -19,7 +19,7 @@ if (buildEl) buildEl.textContent = `build ${__BUILD__}`;
 const { renderer, labelRenderer, scene, camera, controls } = createScene();
 const { ball } = createField(scene);
 
-let kick = null, annotations = null, editor = null;
+let kick = null, annotations = null, editor = null, gizmo = null;
 let t = 0;                 // normalized clip time 0..CLIP_END
 let launched = false;      // has the ball been struck this cycle
 const ballVel = new THREE.Vector3();
@@ -69,13 +69,17 @@ loadCharacter(scene).then(({ model, bones, rest }) => {
   kick = new KickAnimation({ model, bones, rest });
   annotations = new Annotations(scene, ball);
   editor = new PoseEditor({ bones, rest, boneNames: BONES });
+  gizmo = attachGizmo({
+    editor, scene, camera, renderer, controls,
+    onChange: () => { if (editor.onPoseChange) editor.onPoseChange(); },
+  });
 
   const gui = createPanel({
     onChange: () => { if (!params.playing) applyFrame(params.scrub * CLIP_END); },
     onReplay: () => { t = 0; resetBall(); params.playing = true; },
   });
   buildEditorGUI(gui, editor, {
-    kick, params,
+    kick, params, gizmo,
     onEnabledChange: () => { if (!params.playing) applyFrame(params.scrub * CLIP_END); },
   });
 
@@ -83,7 +87,7 @@ loadCharacter(scene).then(({ model, bones, rest }) => {
   // screenshot/clip tooling: freeze, scrub to a frame, and move the camera.
   if (import.meta.env.DEV) {
     window.__dbg = {
-      bones, rest, camera, controls, params, editor, kick,
+      bones, rest, camera, controls, params, editor, kick, gizmo, scene,
       frame(s) { params.playing = false; params.scrub = s; applyFrame(s * CLIP_END); },
       view(px, py, pz, tx, ty, tz) {
         camera.position.set(px, py, pz); controls.target.set(tx, ty, tz); controls.update();
@@ -126,6 +130,7 @@ function animate() {
     }
   }
 
+  if (gizmo) gizmo.update();
   controls.update();
   renderer.render(scene, camera);
   labelRenderer.render(scene, camera);
