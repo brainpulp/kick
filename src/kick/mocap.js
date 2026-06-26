@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
+import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
 
 const DEG = Math.PI / 180;
 
@@ -43,15 +44,24 @@ export function retargetClip(clip, bones, { keepRootPosition = false } = {}) {
   return { clip: new THREE.AnimationClip(clip.name || 'mocap', clip.duration, tracks), mapped, dropped };
 }
 
-// Load an external animation file (GLB/glTF) and retarget its first clip.
+// Load an external animation file and retarget its first clip onto our rig.
+// Supports glTF/GLB (incl. Draco) and FBX (e.g. Mixamo downloads).
 export async function loadExternalClip(url, bones, opts) {
-  const draco = new DRACOLoader();
-  draco.setDecoderPath('draco/');
-  const loader = new GLTFLoader();
-  loader.setDRACOLoader(draco);
-  const gltf = await loader.loadAsync(url);
-  if (!gltf.animations || !gltf.animations.length) throw new Error('No animation in file');
-  return retargetClip(gltf.animations[0], bones, opts);
+  const isFbx = /\.fbx(\?|$)/i.test(url);
+  let animations;
+  if (isFbx) {
+    const obj = await new FBXLoader().loadAsync(url);
+    animations = obj.animations;
+  } else {
+    const draco = new DRACOLoader();
+    draco.setDecoderPath('draco/');
+    const loader = new GLTFLoader();
+    loader.setDRACOLoader(draco);
+    const gltf = await loader.loadAsync(url);
+    animations = gltf.animations;
+  }
+  if (!animations || !animations.length) throw new Error('No animation in file');
+  return retargetClip(animations[0], bones, opts);
 }
 
 // Plays a retargeted clip on our character via AnimationMixer and exposes a

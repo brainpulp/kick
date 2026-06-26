@@ -81,15 +81,20 @@ loadCharacter(scene).then(({ model, bones, rest }) => {
   // Optional external mocap/Blender clip: if assets/kick-mocap.glb is present it
   // is retargeted onto our rig and offered as an animation source.
   mocap = new MocapPlayer(model);
-  loadExternalClip('assets/kick-mocap.glb', bones, { keepRootPosition: false })
-    .then(({ clip, mapped, dropped }) => {
-      mocap.setClip(clip);
-      mocapAvailable = true;
-      // eslint-disable-next-line no-console
-      console.log(`[mocap] loaded clip: ${mapped} tracks mapped, ${dropped} dropped, ${clip.duration.toFixed(2)}s`);
-      if (sourceCtrl) sourceCtrl.options(sourceOptions());
-    })
-    .catch(() => { /* no mocap file yet — that's fine */ });
+  (async () => {
+    for (const url of ['assets/kick-mocap.glb', 'assets/kick-mocap.fbx']) {
+      try {
+        const { clip, mapped, dropped } = await loadExternalClip(url, bones, { keepRootPosition: false });
+        if (!mapped) continue;
+        mocap.setClip(clip);
+        mocapAvailable = true;
+        // eslint-disable-next-line no-console
+        console.log(`[mocap] ${url}: ${mapped} tracks mapped, ${dropped} dropped, ${clip.duration.toFixed(2)}s`);
+        if (sourceCtrl) sourceCtrl.options(sourceOptions());
+        break;
+      } catch { /* try next / none present */ }
+    }
+  })();
   gizmo = attachGizmo({
     editor, scene, camera, renderer, controls,
     onChange: () => { if (editor.onPoseChange) editor.onPoseChange(); },
