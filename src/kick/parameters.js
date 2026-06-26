@@ -43,6 +43,7 @@ export const params = {
   speed: 1.0,
   scrub: 0.0, // 0..1 of the full clip (incl. follow-through), set while paused
   useClip: true, // play the authored keyframe clip (vs the procedural kick)
+  source: 'procedural', // 'procedural' | 'authored' | 'mocap' (set at runtime)
 };
 
 // GUI metadata: ranges + units, keyed by param name.

@@ -9,6 +9,7 @@ import { createTimeline } from './ui/timeline.js';
 import { Annotations } from './ui/annotations.js';
 import { params } from './kick/parameters.js';
 import { BONES } from './character.js';
+import { loadExternalClip, retargetClip, MocapPlayer, applyOverrides } from './kick/mocap.js';
 
 const SECONDS_FULL = 2.4; // wall-clock seconds for the whole 0..CLIP_END clip
 const GRAVITY = 9.81;
@@ -21,6 +22,11 @@ const { renderer, labelRenderer, scene, camera, controls } = createScene();
 const { ball } = createField(scene);
 
 let kick = null, annotations = null, editor = null, gizmo = null, timeline = null;
+let mocap = null, mocapModel = null, mocapAvailable = false;
+let bonesRef = null, restRef = null, sourceCtrl = null;
+const sourceOptions = () => (mocapAvailable
+  ? { Procedural: 'procedural', 'Authored clip': 'authored', 'Mocap clip': 'mocap' }
+  : { Procedural: 'procedural', 'Authored clip': 'authored' });
 let t = 0;                 // normalized clip time 0..CLIP_END
 let launched = false;      // has the ball been struck this cycle
 const ballVel = new THREE.Vector3();
@@ -69,7 +75,21 @@ loadCharacter(scene).then(({ model, bones, rest }) => {
 
   kick = new KickAnimation({ model, bones, rest });
   annotations = new Annotations(scene, ball);
+  bonesRef = bones; restRef = rest; mocapModel = model;
   editor = new PoseEditor({ bones, rest, boneNames: BONES, build: __BUILD__ });
+
+  // Optional external mocap/Blender clip: if assets/kick-mocap.glb is present it
+  // is retargeted onto our rig and offered as an animation source.
+  mocap = new MocapPlayer(model);
+  loadExternalClip('assets/kick-mocap.glb', bones, { keepRootPosition: false })
+    .then(({ clip, mapped, dropped }) => {
+      mocap.setClip(clip);
+      mocapAvailable = true;
+      // eslint-disable-next-line no-console
+      console.log(`[mocap] loaded clip: ${mapped} tracks mapped, ${dropped} dropped, ${clip.duration.toFixed(2)}s`);
+      if (sourceCtrl) sourceCtrl.options(sourceOptions());
+    })
+    .catch(() => { /* no mocap file yet — that's fine */ });
   gizmo = attachGizmo({
     editor, scene, camera, renderer, controls,
     onChange: () => { if (editor.onPoseChange) editor.onPoseChange(); },
@@ -90,10 +110,13 @@ loadCharacter(scene).then(({ model, bones, rest }) => {
     loadPublished().then((ok) => { if (!ok && !editor.keys.length) editor.seedKeys(kick, params, KEY_DEFS); });
   }
 
+  params.source = 'authored'; // default to the shared keyframe clip
   const gui = createPanel({
     onChange: () => { if (!params.playing) applyFrame(params.scrub * CLIP_END); },
     onReplay: () => { t = 0; resetBall(); params.playing = true; },
   });
+  sourceCtrl = gui.add(params, 'source', sourceOptions()).name('Animation source')
+    .onChange(() => { if (!params.playing) applyFrame(params.scrub * CLIP_END); });
 
   function jumpToKey(i) {
     const k = editor.keys[i]; if (!k) return;
@@ -125,7 +148,8 @@ loadCharacter(scene).then(({ model, bones, rest }) => {
   // screenshot/clip tooling: freeze, scrub to a frame, and move the camera.
   if (import.meta.env.DEV) {
     window.__dbg = {
-      bones, rest, camera, controls, params, editor, kick, gizmo, scene,
+      bones, rest, camera, controls, params, editor, kick, gizmo, scene, THREE, mocap,
+      mocapLib: { retargetClip, MocapPlayer, applyOverrides },
       frame(s) { params.playing = false; params.scrub = s; applyFrame(s * CLIP_END); },
       view(px, py, pz, tx, ty, tz) {
         camera.position.set(px, py, pz); controls.target.set(tx, ty, tz); controls.update();
@@ -137,11 +161,15 @@ loadCharacter(scene).then(({ model, bones, rest }) => {
 });
 
 function applyFrame(tt) {
-  // Pose source: editor (while authoring) or the authored clip (playback), else
-  // the procedural kick.
-  const useEditorPose = editor && (editor.enabled || (params.useClip && editor.keys.length));
-  if (useEditorPose) {
-    editor.applyAt(Math.min(Math.max(tt / CLIP_END, 0), 1));
+  const tn = Math.min(Math.max(tt / CLIP_END, 0), 1);
+  // While actively authoring, the editor always drives the rig.
+  if (editor && editor.enabled) {
+    editor.applyAt(tn);
+  } else if (params.source === 'mocap' && mocapAvailable) {
+    mocap.seek(tn);                       // baked clip...
+    applyOverrides(bonesRef, restRef, params); // ...+ live parameter overrides
+  } else if (params.source === 'authored' && editor && editor.keys.length) {
+    editor.applyAt(tn);
   } else {
     kick.update(tt, params);
   }
@@ -150,8 +178,7 @@ function applyFrame(tt) {
     if (!launched && tt >= CONTACT_T) launchBall();
     if (launched && tt < CONTACT_T) resetBall();
   }
-  const phase = kick.phaseLabel(tt);
-  annotations.update(phase, kick.computeLaunch(params), params);
+  annotations.update(kick.phaseLabel(tt), kick.computeLaunch(params), params);
 }
 
 const clock = new THREE.Clock();
