@@ -213,7 +213,7 @@ function applyFrame(tt) {
     if (!launched && crossed) launchBall();
     if (launched && !crossed) resetBall();
   }
-  annotations.update(kick.phaseLabel(tt), kick.computeLaunch(params), params);
+  annotations.update(params, mocapModel ? mocapModel.position : null);
 }
 
 // Shift the model down so the lowest foot rests on the pitch (kills floating /

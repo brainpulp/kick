@@ -33,7 +33,16 @@ export async function loadCharacter(scene, manifestUrl = 'assets/manifest.json')
   const bones = {};
   const rest = {};
   model.traverse((o) => {
-    if (o.isMesh) { o.castShadow = true; o.frustumCulled = false; }
+    if (o.isMesh) {
+      o.castShadow = true; o.frustumCulled = false;
+      // Draco-quantized normals look blotchy under hard light — ease the normal
+      // map and keep PBR from going fully matte so IBL reads cleanly.
+      const mats = Array.isArray(o.material) ? o.material : [o.material];
+      for (const m of mats) {
+        if (m && m.normalScale) m.normalScale.set(0.35, 0.35);
+        if (m && 'envMapIntensity' in m) m.envMapIntensity = 1.0;
+      }
+    }
     if (o.isBone || o.type === 'Bone') {
       // three.js sanitizes node names and strips reserved chars like ':',
       // so the GLB's "rig:RightLeg" arrives here as "rigRightLeg". Tolerate both.
