@@ -40,8 +40,16 @@ export const params = {
 
   // playback
   playing: true,
-  speed: 1.0,
+  speed: 1.0,   // overall playback rate ("fasten"): >1 faster; 1 = natural
+  delay: 0.6,   // seconds held on the first frame before each loop
   scrub: 0.0, // 0..1 of the full clip (incl. follow-through), set while paused
+  // Per-stage speed multipliers for an imported clip (1 = natural). Stages are
+  // anchored to the calibrated contact moment.
+  spdPreRunup: 1.0,
+  spdRunup: 1.0,
+  spdRecoil: 1.0,
+  spdWhip: 1.0,
+  spdFollow: 1.0,
   useClip: true, // play the authored keyframe clip (vs the procedural kick)
   source: 'procedural', // 'procedural' | 'authored' | 'mocap' (set at runtime)
   rootMotion: true, // apply an imported clip's root translation (locomotion)
