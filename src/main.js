@@ -25,8 +25,8 @@ let kick = null, annotations = null, editor = null, gizmo = null, timeline = nul
 let mocap = null, mocapModel = null, mocapAvailable = false;
 let bonesRef = null, restRef = null, sourceCtrl = null;
 const sourceOptions = () => (mocapAvailable
-  ? { Procedural: 'procedural', 'Authored clip': 'authored', 'Mocap clip': 'mocap' }
-  : { Procedural: 'procedural', 'Authored clip': 'authored' });
+  ? { 'Imported clip': 'mocap', 'Authored clip': 'authored', Procedural: 'procedural' }
+  : { 'Authored clip': 'authored', Procedural: 'procedural' });
 let t = 0;                 // normalized clip time 0..CLIP_END
 let launched = false;      // has the ball been struck this cycle
 const ballVel = new THREE.Vector3();
@@ -88,9 +88,10 @@ loadCharacter(scene).then(({ model, bones, rest }) => {
         if (!mapped) continue;
         mocap.setClip(clip);
         mocapAvailable = true;
+        params.source = 'mocap'; // show the imported clip by default once present
+        buildSourceCtrl();
         // eslint-disable-next-line no-console
         console.log(`[mocap] ${url}: ${mapped} tracks mapped, ${dropped} dropped, ${clip.duration.toFixed(2)}s`);
-        if (sourceCtrl) sourceCtrl.options(sourceOptions());
         break;
       } catch { /* try next / none present */ }
     }
@@ -115,13 +116,17 @@ loadCharacter(scene).then(({ model, bones, rest }) => {
     loadPublished().then((ok) => { if (!ok && !editor.keys.length) editor.seedKeys(kick, params, KEY_DEFS); });
   }
 
-  params.source = 'authored'; // default to the shared keyframe clip
+  params.source = 'authored'; // default to the shared keyframe clip (until an import loads)
   const gui = createPanel({
     onChange: () => { if (!params.playing) applyFrame(params.scrub * CLIP_END); },
     onReplay: () => { t = 0; resetBall(); params.playing = true; },
   });
-  sourceCtrl = gui.add(params, 'source', sourceOptions()).name('Animation source')
-    .onChange(() => { if (!params.playing) applyFrame(params.scrub * CLIP_END); });
+  function buildSourceCtrl() {
+    if (sourceCtrl) sourceCtrl.destroy();
+    sourceCtrl = gui.add(params, 'source', sourceOptions()).name('Animation source')
+      .onChange(() => { if (!params.playing) applyFrame(params.scrub * CLIP_END); });
+  }
+  buildSourceCtrl();
 
   function jumpToKey(i) {
     const k = editor.keys[i]; if (!k) return;
