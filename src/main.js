@@ -10,6 +10,7 @@ import { Annotations } from './ui/annotations.js';
 import { params } from './kick/parameters.js';
 import { BONES } from './character.js';
 import { loadExternalClip, retargetClip, MocapPlayer, applyOverrides } from './kick/mocap.js';
+import { scenarioStore, snapshot, applyScenario } from './scenarios.js';
 
 const SECONDS_FULL = 2.4; // wall-clock seconds for the whole 0..CLIP_END clip
 const GRAVITY = 9.81;
@@ -77,7 +78,7 @@ loadCharacter(scene).then(({ model, bones, rest }) => {
   model.rotation.y = Math.PI; // face -Z (tune if the model faces the other way)
 
   kick = new KickAnimation({ model, bones, rest });
-  annotations = new Annotations(scene, ball);
+  annotations = new Annotations(scene, bones);
   bonesRef = bones; restRef = rest; mocapModel = model; mocapBase = model.position.clone();
   editor = new PoseEditor({ bones, rest, boneNames: BONES, build: __BUILD__ });
 
@@ -134,6 +135,14 @@ loadCharacter(scene).then(({ model, bones, rest }) => {
   gui.add(params, 'rootMotion').name('Root motion (locomotion)')
     .onChange(() => { if (!params.playing) applyFrame(params.scrub * CLIP_END); });
   gui.add(params, 'delay', 0, 3, 0.05).name('Delay before kick (s)');
+  const axF = gui.addFolder('Body axes');
+  axF.close();
+  axF.add(params, 'showAxes').name('Show axes');
+  axF.add(params, 'axHips').name('Hips (L–R)');
+  axF.add(params, 'axShoulders').name('Shoulders (L–R)');
+  axF.add(params, 'axToes').name('Toes (pointing)');
+  axF.add(params, 'axKnee').name('Knee (plumb)');
+  axF.add(params, 'axGaze').name('Gaze');
   const stageF = gui.addFolder('Stage speeds (imported clip)');
   stageF.close();
   stageF.add(params, 'spdPreRunup', 0.2, 3, 0.05).name('Pre-run-up');
@@ -167,6 +176,39 @@ loadCharacter(scene).then(({ model, bones, rest }) => {
     onSeed: () => { editor.activeIndex = -1; timeline.setActive(-1); },
     onRevert: (after) => { loadPublished(() => { editor.activeIndex = -1; timeline.setActive(-1); if (after) after(); }); },
   });
+
+  // Scenarios: save/load named configurations of every control (local for now;
+  // the store is async so Supabase can drop in later). Will be populated with
+  // real kicks (e.g. Caniggia vs River, 1992) once captured.
+  const scF = gui.addFolder('Scenarios');
+  scF.close();
+  const scState = { name: 'My kick', selected: '' };
+  let scDropdown = null;
+  async function refreshScenarios() {
+    const names = await scenarioStore.list();
+    if (scDropdown) scDropdown.destroy();
+    scDropdown = scF.add(scState, 'selected', names.length ? names : ['(none)']).name('Saved');
+  }
+  scF.add(scState, 'name').name('Name');
+  scF.add({ save: async () => {
+    if (!scState.name) return;
+    await scenarioStore.save(scState.name, snapshot());
+    await refreshScenarios(); scState.selected = scState.name; scDropdown.updateDisplay();
+  } }, 'save').name('💾 Save current');
+  scF.add({ load: async () => {
+    const cfg = await scenarioStore.get(scState.selected);
+    if (!cfg) return;
+    applyScenario(cfg);
+    buildSourceCtrl();
+    gui.controllersRecursive().forEach((c) => c.updateDisplay());
+    if (!params.playing) applyFrame(params.scrub * CLIP_END);
+  } }, 'load').name('▶ Load selected');
+  scF.add({ del: async () => {
+    if (!scState.selected) return;
+    await scenarioStore.remove(scState.selected);
+    await refreshScenarios();
+  } }, 'del').name('🗑 Delete selected');
+  refreshScenarios();
 
   // Dev-only inspection hook (stripped from production builds) for headless
   // screenshot/clip tooling: freeze, scrub to a frame, and move the camera.
@@ -281,9 +323,19 @@ function calibrateMocap() {
   }
   const ci = best ? best.i : Math.round(N * 0.7);
   mocapContactT = fl[ci].tn;
-  // Align: at contact, runtime foot.world = footLocal - rootOffset + align = 0.
+  // Place the PLANT (support) foot beside the ball: toes at the ball's front
+  // edge, 20 cm to the side. Measure the support toe in body space at contact,
+  // then solve for the shift (runtime world = local - rootOffset + align).
+  const S = K === 'Right' ? 'Left' : 'Right';
+  const supToe = bonesRef[`${S}ToeBase`] || bonesRef[`${S}Foot`] || foot;
+  mocap.seek(mocapContactT);
+  mocapModel.position.copy(mocapBase);
+  mocapModel.updateMatrixWorld(true);
+  const sp = supToe.getWorldPosition(new THREE.Vector3());
   const o = mocap.rootOffset(mocapContactT) || { x: 0, z: 0 };
-  mocapAlign = { x: o.x - fl[ci].x, z: o.z - fl[ci].z };
+  const sideX = (K === 'Right' ? 1 : -1) * 0.20; // plant foot to the player's plant side
+  const frontZ = -BALL_RADIUS;                   // toes level with the ball's front edge
+  mocapAlign = { x: sideX - sp.x + o.x, z: frontZ - sp.z + o.z };
   // eslint-disable-next-line no-console
   console.log(`[mocap] contactT=${mocapContactT.toFixed(2)} align=(${mocapAlign.x.toFixed(2)},${mocapAlign.z.toFixed(2)})`);
 }

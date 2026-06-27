@@ -8,7 +8,8 @@ const DEG = Math.PI / 180;
 //  - a distance line with end ticks for a displacement, e.g. Aim-Support depth.
 // They follow the player each frame.
 export class Annotations {
-  constructor(scene) {
+  constructor(scene, bones) {
+    this.bones = bones || {};
     // Hip-turn disc: lies flat (perpendicular to the vertical hip-yaw axis).
     this.hip = new THREE.Group();
     this.hipRange = sectorMesh(0x2f6b3a, 0.22);   // full allowed range (faint)
@@ -28,6 +29,16 @@ export class Annotations {
     // Distance line (displacement) — Aim-Support depth behind the plant.
     this.dist = makeDistanceLine(0x8fd0ff);
     scene.add(this.dist.group);
+
+    // Body-axis lines (toggleable) that extend from key body parts.
+    this.axes = {
+      hips: axisLine(0xff5d5d),
+      shoulders: axisLine(0x5db4ff),
+      toes: axisLine(0xffd23f),
+      knee: axisLine(0xb47dff),
+      gaze: axisLine(0x33e6c0),
+    };
+    for (const k in this.axes) scene.add(this.axes[k]);
   }
 
   // center: the player's world position (x,z used).
@@ -43,7 +54,67 @@ export class Annotations {
       new THREE.Vector3(center.x + 0.25, 0.03, center.z),
       new THREE.Vector3(center.x + 0.25, 0.03, center.z + d),
     );
+
+    this.updateAxes(params);
   }
+
+  // Infinite-axis lines from body parts. Directions are derived from bone-pair
+  // vectors (robust, no per-bone axis guessing).
+  updateAxes(params) {
+    const B = this.bones;
+    const on = !!params.showAxes;
+    const wp = (n) => (B[n] ? B[n].getWorldPosition(new THREE.Vector3()) : null);
+    const K = params.footedness === 'right' ? 'Right' : 'Left';
+    const L = 4;
+
+    const lateral = (a, b) => { const va = wp(a), vb = wp(b); return (va && vb) ? va.clone().sub(vb).setY(0).normalize() : null; };
+
+    // Hips side-to-side.
+    const hipC = wp('Hips'); const hipLat = lateral('LeftUpLeg', 'RightUpLeg');
+    setLine(this.axes.hips, on && params.axHips && hipC && hipLat, hipC, hipLat, L, true);
+
+    // Shoulders side-to-side.
+    const shC = wp('LeftArm') && wp('RightArm') ? wp('LeftArm').add(wp('RightArm')).multiplyScalar(0.5) : wp('Spine2');
+    const shLat = lateral('LeftArm', 'RightArm');
+    setLine(this.axes.shoulders, on && params.axShoulders && shC && shLat, shC, shLat, L, true);
+
+    // Toes — where the kicking foot points (horizontal forward).
+    const toe = wp(`${K}ToeBase`); const foot = wp(`${K}Foot`);
+    const toeDir = (toe && foot) ? toe.clone().sub(foot).setY(0).normalize() : null;
+    setLine(this.axes.toes, on && params.axToes && toe && toeDir, toe, toeDir, 1.5, false);
+
+    // Knee plumb — straight down to the pitch (shows knee position vs the ball).
+    const knee = wp(`${K}Leg`);
+    setLine(this.axes.knee, on && params.axKnee && knee, knee, new THREE.Vector3(0, -1, 0), knee ? knee.y : 0, false);
+
+    // Gaze — head forward (up × shoulder-lateral), oriented toward the goal (-Z).
+    const head = wp('Head'); const neck = wp('Neck');
+    let gazeDir = null;
+    if (head && neck && shLat) {
+      const up = head.clone().sub(neck).normalize();
+      gazeDir = up.clone().cross(shLat).normalize();
+      if (gazeDir.z > 0) gazeDir.negate();
+    }
+    setLine(this.axes.gaze, on && params.axGaze && head && gazeDir, head, gazeDir, 2.5, false);
+  }
+}
+
+// A 2-point line we restretch each frame.
+function axisLine(color) {
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(6), 3));
+  const line = new THREE.Line(g, new THREE.LineBasicMaterial({ color }));
+  line.visible = false;
+  return line;
+}
+// origin + dir; `both` extends both ways, else from origin along dir by len.
+function setLine(line, visible, origin, dir, len, both) {
+  line.visible = !!visible;
+  if (!visible || !origin || !dir) return;
+  const a = both ? origin.clone().addScaledVector(dir, -len) : origin.clone();
+  const b = origin.clone().addScaledVector(dir, len);
+  const pos = line.geometry.attributes.position;
+  pos.setXYZ(0, a.x, a.y, a.z); pos.setXYZ(1, b.x, b.y, b.z); pos.needsUpdate = true;
 }
 
 // A flat circular sector (wedge) centered on +Y (straight ahead), spanning `deg`.
