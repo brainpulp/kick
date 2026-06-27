@@ -12,6 +12,8 @@ export function createScene() {
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.1;
   app.appendChild(renderer.domElement);
 
   // CSS2D overlay renderer for annotation labels.
@@ -23,8 +25,10 @@ export function createScene() {
   app.appendChild(labelRenderer.domElement);
 
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x0d1b12);
-  scene.fog = new THREE.Fog(0x0d1b12, 14, 40);
+  // Sky: vertical gradient (blue up high, pale at the horizon) instead of a
+  // flat dark background, so the player reads as outdoors rather than in a cave.
+  scene.background = makeSkyTexture();
+  scene.fog = new THREE.Fog(0xd6e7f2, 26, 75);
 
   const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 200);
   camera.position.set(3.2, 1.9, 4.4);
@@ -36,9 +40,9 @@ export function createScene() {
   controls.maxDistance = 18;
   controls.maxPolarAngle = Math.PI * 0.495; // don't go under the pitch
 
-  // Lighting: soft sky/ground hemisphere + a key sun with shadows.
-  scene.add(new THREE.HemisphereLight(0xcfe8d6, 0x2a3b2f, 0.9));
-  const sun = new THREE.DirectionalLight(0xffffff, 2.1);
+  // Lighting: bright outdoor sky/ground hemisphere + a key sun with shadows.
+  scene.add(new THREE.HemisphereLight(0xbfe0ff, 0x6f8a63, 1.5));
+  const sun = new THREE.DirectionalLight(0xfff6e8, 3.0);
   sun.position.set(4, 8, 5);
   sun.castShadow = true;
   sun.shadow.mapSize.set(2048, 2048);
@@ -54,7 +58,7 @@ export function createScene() {
   // Pitch.
   const grass = new THREE.Mesh(
     new THREE.PlaneGeometry(60, 60),
-    new THREE.MeshStandardMaterial({ color: 0x2f6b3a, roughness: 1 })
+    new THREE.MeshStandardMaterial({ color: 0x4a9d57, roughness: 1 })
   );
   grass.rotation.x = -Math.PI / 2;
   grass.receiveShadow = true;
@@ -78,4 +82,20 @@ export function createScene() {
   resize();
 
   return { renderer, labelRenderer, scene, camera, controls };
+}
+
+// Vertical sky gradient as a background texture (blue → pale horizon).
+function makeSkyTexture() {
+  const c = document.createElement('canvas');
+  c.width = 4; c.height = 256;
+  const ctx = c.getContext('2d');
+  const g = ctx.createLinearGradient(0, 0, 0, 256);
+  g.addColorStop(0.0, '#6ea8db');   // high sky
+  g.addColorStop(0.55, '#a9cfea');
+  g.addColorStop(1.0, '#e6f0f6');   // horizon haze
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, 4, 256);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
 }
