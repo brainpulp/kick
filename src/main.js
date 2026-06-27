@@ -22,7 +22,7 @@ const { renderer, labelRenderer, scene, camera, controls } = createScene();
 const { ball } = createField(scene);
 
 let kick = null, annotations = null, editor = null, gizmo = null, timeline = null;
-let mocap = null, mocapModel = null, mocapAvailable = false;
+let mocap = null, mocapModel = null, mocapAvailable = false, mocapBase = null;
 let bonesRef = null, restRef = null, sourceCtrl = null;
 const sourceOptions = () => (mocapAvailable
   ? { 'Imported clip': 'mocap', 'Authored clip': 'authored', Procedural: 'procedural' }
@@ -75,7 +75,7 @@ loadCharacter(scene).then(({ model, bones, rest }) => {
 
   kick = new KickAnimation({ model, bones, rest });
   annotations = new Annotations(scene, ball);
-  bonesRef = bones; restRef = rest; mocapModel = model;
+  bonesRef = bones; restRef = rest; mocapModel = model; mocapBase = model.position.clone();
   editor = new PoseEditor({ bones, rest, boneNames: BONES, build: __BUILD__ });
 
   // Optional external mocap/Blender clip: if assets/kick-mocap.glb is present it
@@ -84,9 +84,9 @@ loadCharacter(scene).then(({ model, bones, rest }) => {
   (async () => {
     for (const url of ['assets/kick-mocap.glb', 'assets/kick-mocap.fbx']) {
       try {
-        const { clip, mapped, dropped } = await loadExternalClip(url, bones, { keepRootPosition: false });
+        const { clip, mapped, dropped, rootTrack } = await loadExternalClip(url, bones, { keepRootPosition: false });
         if (!mapped) continue;
-        mocap.setClip(clip);
+        mocap.setClip(clip, rootTrack);
         mocapAvailable = true;
         params.source = 'mocap'; // show the imported clip by default once present
         buildSourceCtrl();
@@ -127,6 +127,8 @@ loadCharacter(scene).then(({ model, bones, rest }) => {
       .onChange(() => { if (!params.playing) applyFrame(params.scrub * CLIP_END); });
   }
   buildSourceCtrl();
+  gui.add(params, 'rootMotion').name('Root motion (locomotion)')
+    .onChange(() => { if (!params.playing) applyFrame(params.scrub * CLIP_END); });
 
   function jumpToKey(i) {
     const k = editor.keys[i]; if (!k) return;
@@ -178,6 +180,10 @@ function applyFrame(tt) {
   } else if (params.source === 'mocap' && mocapAvailable) {
     mocap.seek(tn);                       // baked clip...
     applyOverrides(bonesRef, restRef, params); // ...+ live parameter overrides
+    // Root motion: model faces -Z (rotation.y = PI), so negate the clip's X/Z.
+    const o = params.rootMotion ? mocap.rootOffset(tn) : null;
+    if (o) mocapModel.position.set(mocapBase.x - o.x, mocapBase.y + Math.max(0, o.y), mocapBase.z - o.z);
+    else mocapModel.position.copy(mocapBase);
   } else if (params.source === 'authored' && editor && editor.keys.length) {
     editor.applyAt(tn);
   } else {

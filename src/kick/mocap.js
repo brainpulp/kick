@@ -30,18 +30,24 @@ export function retargetClip(clip, bones, { keepRootPosition = false } = {}) {
   };
 
   const tracks = [];
-  let mapped = 0, dropped = 0;
+  let mapped = 0, dropped = 0, rootTrack = null;
   for (const track of clip.tracks) {
     const prop = track.name.slice(track.name.lastIndexOf('.') + 1); // quaternion|position|scale
     const hit = resolve(track.name);
     if (!hit) { dropped++; continue; }
-    if (prop === 'position' && !(keepRootPosition && hit.short === 'Hips')) { dropped++; continue; }
+    // Capture the Hips position separately as the root-motion track (applied to
+    // the model root, not the bone, so locomotion is preserved at the right scale).
+    if (prop === 'position' && hit.short === 'Hips') {
+      rootTrack = track.clone();
+      if (!keepRootPosition) { dropped++; continue; }
+    }
+    if (prop === 'position' && hit.short !== 'Hips') { dropped++; continue; }
     if (prop === 'scale') { dropped++; continue; }
     track.name = `${hit.name}.${prop}`;
     tracks.push(track);
     mapped++;
   }
-  return { clip: new THREE.AnimationClip(clip.name || 'mocap', clip.duration, tracks), mapped, dropped };
+  return { clip: new THREE.AnimationClip(clip.name || 'mocap', clip.duration, tracks), mapped, dropped, rootTrack };
 }
 
 // Load an external animation file and retarget its first clip onto our rig.
@@ -68,16 +74,34 @@ export async function loadExternalClip(url, bones, opts) {
 // scrub-friendly seek(). The parameter overrides are layered separately, after
 // each update, so the sliders still modulate the baked motion.
 export class MocapPlayer {
-  constructor(model) { this.model = model; this.mixer = null; this.action = null; this.duration = 0; }
-  setClip(clip) {
+  constructor(model) {
+    this.model = model; this.mixer = null; this.action = null; this.duration = 0;
+    this.rootInterp = null; this.root0 = null; this.rootScale = 0.01; // FBX cm -> m
+  }
+  setClip(clip, rootTrack, rootScale) {
     if (this.action) this.action.stop();
     this.mixer = new THREE.AnimationMixer(this.model);
     this.action = this.mixer.clipAction(clip);
     this.action.play();
     this.duration = clip.duration || 1;
+    if (typeof rootScale === 'number') this.rootScale = rootScale;
+    if (rootTrack) {
+      this.rootInterp = rootTrack.createInterpolant();
+      this.root0 = Array.from(rootTrack.values.slice(0, 3)); // first keyframe (x,y,z)
+    } else { this.rootInterp = null; this.root0 = null; }
   }
   seek(t01) { if (this.mixer) { this.mixer.setTime(0); this.mixer.update(t01 * this.duration); } }
   update(dt) { if (this.mixer) this.mixer.update(dt); }
+  // Planar root displacement (metres) from the clip's start, or null if no root.
+  rootOffset(t01) {
+    if (!this.rootInterp) return null;
+    const v = this.rootInterp.evaluate(t01 * this.duration);
+    return {
+      x: (v[0] - this.root0[0]) * this.rootScale,
+      y: (v[1] - this.root0[1]) * this.rootScale,
+      z: (v[2] - this.root0[2]) * this.rootScale,
+    };
+  }
 }
 
 // Additive parameter overrides applied AFTER the baked pose, so the teaching
