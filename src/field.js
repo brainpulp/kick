@@ -57,17 +57,16 @@ export function createField(scene) {
   // Stationary reference markers — fixed cones on the pitch so the character's
   // locomotion (root travel) is easy to read against the world.
   const coneMat = new THREE.MeshStandardMaterial({ color: 0xff7518, roughness: 0.6 });
-  const mkCone = (x, z) => {
-    const c = new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.32, 16), coneMat);
-    c.position.set(x, 0.16, z);
+  const mkCone = (x, z) => { // 20% smaller than before
+    const c = new THREE.Mesh(new THREE.ConeGeometry(0.096, 0.256, 16), coneMat);
+    c.position.set(x, 0.128, z);
     c.castShadow = true;
     scene.add(c);
     return c;
   };
-  // Flank the strike zone and mark a spot behind the run-up start.
+  // The two cones the player runs through by the end of the kick.
   mkCone(-1.2, 0.4);
   mkCone(1.2, 0.4);
-  mkCone(0, 1.8);
 
   return { ball, goal };
 }
