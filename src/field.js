@@ -54,5 +54,20 @@ export function createField(scene) {
   line.position.set(0, 0.002, -GOAL_DISTANCE / 2);
   scene.add(line);
 
+  // Stationary reference markers — fixed cones on the pitch so the character's
+  // locomotion (root travel) is easy to read against the world.
+  const coneMat = new THREE.MeshStandardMaterial({ color: 0xff7518, roughness: 0.6 });
+  const mkCone = (x, z) => {
+    const c = new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.32, 16), coneMat);
+    c.position.set(x, 0.16, z);
+    c.castShadow = true;
+    scene.add(c);
+    return c;
+  };
+  // Flank the strike zone and mark a spot behind the run-up start.
+  mkCone(-1.2, 0.4);
+  mkCone(1.2, 0.4);
+  mkCone(0, 1.8);
+
   return { ball, goal };
 }
