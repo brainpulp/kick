@@ -53,7 +53,18 @@ export const params = {
   useClip: true, // play the authored keyframe clip (vs the procedural kick)
   source: 'procedural', // 'procedural' | 'authored' | 'mocap' (set at runtime)
   rootMotion: true, // apply an imported clip's root translation (locomotion)
+
+  // Body-axis annotation lines (master toggle + per-axis).
+  showAxes: false,
+  axHips: true,
+  axShoulders: true,
+  axToes: true,
+  axKnee: true,
+  axGaze: true,
 };
+
+// Snapshot of the original defaults (for per-control "reset to default").
+export const DEFAULTS = { ...params };
 
 // GUI metadata: ranges + units, keyed by param name.
 export const meta = {
