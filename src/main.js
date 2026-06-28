@@ -385,29 +385,27 @@ function applyTorso(scrubN) {
   }
 }
 
-// Counter arm (opposite the kicking leg). Overrides the baked arm so the teaching
-// pose is clear: stretched back & up early, swinging down & forward through the
-// strike. `p` is a 0..1 progression from the recoil to the end of the follow-up.
-const _armQuat = new THREE.Quaternion();
+// Counter arm (opposite the kicking leg). Driven off the REST pose and blended
+// in by `armSwing` — NOT added to the baked swing — so the motion is clean and
+// predictable (no compounding with the mocap arm). Stretched back & up early,
+// swinging down & forward through the strike.
 const _armEuler = new THREE.Euler();
+const _armOff = new THREE.Quaternion();
+const _armTarget = new THREE.Quaternion();
+function poseArm(name, xDeg, zDeg, amt) {
+  const b = bonesRef[name]; const r = restRef[name]; if (!b || !r) return;
+  _armEuler.set(xDeg * DEG, 0, zDeg * DEG, 'XYZ');
+  _armTarget.copy(r).multiply(_armOff.setFromEuler(_armEuler)); // rest ∘ offset
+  b.quaternion.slerp(_armTarget, amt);                          // mocap → target by amt
+}
 function applyArms(scrubN) {
   const amt = params.armSwing || 0;
-  if (amt < 0.01) return;
-  const p = env(scrubN, timings.arm); // 0 early → 1 end
+  if (amt < 0.001) return;
+  const p = env(scrubN, timings.arm); // 0 early (back&up) → 1 end (down&forward)
   const S = params.footedness === 'right' ? 'Left' : 'Right'; // arm opposite the kicking leg
   const sgn = S === 'Left' ? -1 : 1;                          // abduction sign for that side
-  const arm = bonesRef[`${S}Arm`]; const fore = bonesRef[`${S}ForeArm`];
-  // back&up (p=0) → down&forward (p=1)
-  const flexX = -45 + 95 * p;      // X: back → forward
-  const abductZ = (60 - 70 * p);   // Z: out/up → down/in
-  if (arm) {
-    _armEuler.set(flexX * amt * DEG, 0, sgn * abductZ * amt * DEG, 'XYZ');
-    arm.quaternion.multiply(_armQuat.setFromEuler(_armEuler));
-  }
-  if (fore) {
-    _armEuler.set((10 + 30 * p) * amt * DEG, 0, 0, 'XYZ'); // slight elbow flex into the finish
-    fore.quaternion.multiply(_armQuat.setFromEuler(_armEuler));
-  }
+  poseArm(`${S}Arm`, -35 + 80 * p, sgn * (75 - 80 * p), amt); // back&up → forward&down
+  poseArm(`${S}ForeArm`, 15 + 25 * p, 0, amt);                // slight elbow flex into the finish
 }
 
 // One leg of a jog cycle (phase 0..1): forward swing then planted sweep.
