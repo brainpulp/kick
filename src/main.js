@@ -138,6 +138,7 @@ loadCharacter(scene).then(({ model, bones, rest }) => {
   gui.add(params, 'rootMotion').name('Root motion (locomotion)')
     .onChange(() => { if (!params.playing) applyFrame(params.scrub * CLIP_END); });
   gui.add(params, 'runupSteps', 0, 5, 1).name('Run-up steps');
+  gui.add(params, 'runupAngle', 0, 90, 1).name('Run-up angle °');
   gui.add(params, 'delay', 0, 3, 0.05).name('Delay before kick (s)');
   const axF = gui.addFolder('Body axes');
   axF.close();
@@ -238,6 +239,7 @@ function applyFrame(tt) {
   } else if (params.source === 'mocap' && mocapAvailable) {
     mocap.seek(tn);                       // baked clip...
     applyOverrides(bonesRef, restRef, params); // ...+ live parameter overrides
+    applyRecoil(tn);                      // cock-back (pre-contact)
     applyFollowUp(tn);                     // follow-through sweep (post-contact)
     // Root motion: model faces -Z (rotation.y = PI) so negate clip X/Z; align
     // shift makes the strike foot meet the ball.
@@ -337,6 +339,38 @@ function applyFollowUp(scrubN) {
   add(`${K}UpLeg`, 0, 0, -amt * 35 * mir);    // kicking leg sweeps across the body
 }
 
+// Recoil timing envelope (0..1): the cock-back winds up through the recoil stage
+// (0.78c→0.92c), peaks at the top of the backswing, then releases by contact as
+// the whip fires. Zero everywhere else.
+function recoilEnvelope(scrubN) {
+  const c = mocapContactT;
+  const r0 = 0.78 * c, rp = 0.92 * c;
+  if (scrubN <= r0 || scrubN >= c) return 0;
+  if (scrubN <= rp) return _smooth((scrubN - r0) / Math.max(1e-3, rp - r0));
+  return 1 - _smooth((scrubN - rp) / Math.max(1e-3, c - rp));
+}
+
+// The cock-back, layered on the baked pose during the recoil stage:
+//  1. the pelvis winds toward the kicking foot (rotating about the plant hip);
+//  2. the kicking femur pulls back (hip extension) with the knee flexing.
+const _rcQuat = new THREE.Quaternion();
+const _rcEuler = new THREE.Euler();
+function applyRecoil(scrubN) {
+  const env = recoilEnvelope(scrubN);
+  const deg = (params.recoil || 0) * env;
+  if (deg < 0.05) return;
+  const mir = params.footedness === 'right' ? 1 : -1;
+  const K = params.footedness === 'right' ? 'Right' : 'Left';
+  const add = (name, x, y, z) => {
+    const b = bonesRef[name]; if (!b) return;
+    _rcEuler.set(x * DEG, y * DEG, z * DEG, 'XYZ');
+    b.quaternion.multiply(_rcQuat.setFromEuler(_rcEuler));
+  };
+  add('Hips', 0, deg * 0.5 * mir, 0);     // pelvis winds toward the kicking foot
+  add(`${K}UpLeg`, -deg, 0, 0);           // kicking femur pulls back (hip extension)
+  add(`${K}Leg`, -deg * 1.2, 0, 0);       // knee flexes (cocks the lower leg)
+}
+
 // One leg of a jog cycle (phase 0..1): forward swing then planted sweep.
 function legCycle(phase) {
   phase -= Math.floor(phase);
@@ -350,8 +384,11 @@ function poseJog(phase) {
   kick.resetPose();
   const mir = params.footedness === 'right' ? 1 : -1;
   const r = legCycle(phase), l = legCycle(phase + 0.5);
-  kick.applyBone('RightUpLeg', r.hip * DEG, 0, 0); kick.applyBone('RightLeg', -r.knee * DEG, 0, 0);
-  kick.applyBone('LeftUpLeg', l.hip * DEG, 0, 0); kick.applyBone('LeftLeg', -l.knee * DEG, 0, 0);
+  // Adduct both thighs inward so the feet track close to a single line (not a
+  // wide waddle). Legs' local Z is the lateral axis.
+  const add = 9;
+  kick.applyBone('RightUpLeg', r.hip * DEG, 0, -add * DEG); kick.applyBone('RightLeg', -r.knee * DEG, 0, 0);
+  kick.applyBone('LeftUpLeg', l.hip * DEG, 0, add * DEG); kick.applyBone('LeftLeg', -l.knee * DEG, 0, 0);
   kick.applyBone('RightFoot', 8 * DEG, 0, 0); kick.applyBone('LeftFoot', 8 * DEG, 0, 0);
   // arms swing opposite the same-side leg
   kick.applyBone('RightArm', (-r.hip * 0.5) * DEG, 0, 10 * mir * DEG);
@@ -451,18 +488,27 @@ function animate() {
       const w = mocapPlayT - params.delay;
 
       // Clip start position (= where the run-up must hand off) and the run-up
-      // start, `steps` strides behind it along the approach (+Z).
-      const STEP_LEN = 0.9;
+      // start, `steps` strides behind it along the approach. The approach comes
+      // in at `runupAngle` off the straight-on line, toward the plant side, so
+      // `back` is the offset from the ball back to where the run-up begins.
+      const STEP_LEN = 1.5;                       // match the imported clip's stride
+      const mirR = params.footedness === 'right' ? 1 : -1;
+      const phi = -(params.runupAngle || 0) * DEG * mirR; // toward the plant side
       const clipStart = new THREE.Vector3(mocapBase.x + mocapAlign.x, mocapBase.y, mocapBase.z + mocapAlign.z);
-      if (mocapBaseQuat) mocapModel.quaternion.copy(mocapBaseQuat); // upright during run-up
+      const back = new THREE.Vector3(Math.sin(phi), 0, Math.cos(phi)).multiplyScalar(steps * STEP_LEN);
+      const runYaw = phi + Math.PI;              // face along the travel direction
       if (w < 0) {                               // delay: hold at run-up start
         poseJog(0);
-        mocapModel.position.set(clipStart.x, clipStart.y, clipStart.z + steps * STEP_LEN);
+        mocapModel.position.set(clipStart.x + back.x, clipStart.y, clipStart.z + back.z);
+        mocapModel.rotation.set(0, runYaw, 0);
         groundModel();
       } else if (w < runupWall) {                // procedural jog in
         const f = w / runupWall;
         poseJog((w / stepWall) * 0.5);           // each foot-fall = half a cycle
-        mocapModel.position.set(clipStart.x, clipStart.y, clipStart.z + (1 - f) * steps * STEP_LEN);
+        mocapModel.position.set(clipStart.x + back.x * (1 - f), clipStart.y, clipStart.z + back.z * (1 - f));
+        // Square up to the goal over the last third so the hand-off is seamless.
+        const turn = _smooth((f - 0.66) / 0.34);
+        mocapModel.rotation.set(0, runYaw + (Math.PI - runYaw) * turn, 0);
         groundModel();
       } else {                                   // imported clip
         const wc = (w - runupWall) * rate / mocap.duration;
