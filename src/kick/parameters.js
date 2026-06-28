@@ -10,9 +10,13 @@ export const FOOTEDNESS = ['right', 'left'];
 export const params = {
   footedness: 'right',
 
-  // §2 Aim Support — support-foot depth behind the ball (cm). Higher = more hip
-  // room = more power and loft; 0 = level with ball = compact/low.
+  // Plant (support) foot placement — 3 DOF, relative to the ball:
+  //  depth   = how far BEHIND the ball (cm); more = more hip room → loft/power,
+  //  lateral = how far to the SIDE of the ball (cm), + = wider toward plant side,
+  //  point   = toe yaw (deg); point off the goal to add effect/curl.
   aimSupportDepth: 12,
+  supportLateral: 0,
+  supportPoint: 0,
 
   // §3 Tilt — lateral trunk lean away from the kicking leg (deg) → clearance/lift.
   tilt: 15,
@@ -97,7 +101,11 @@ export const DEFAULTS = { ...params };
 
 // GUI metadata: ranges + units, keyed by param name.
 export const meta = {
-  aimSupportDepth: { min: 0, max: 25, step: 1, unit: 'cm', label: 'Aim Support (depth)' },
+  runupAngle: { min: 0, max: 90, step: 1, unit: '°', label: 'Approach angle' },
+  runupSteps: { min: 0, max: 5, step: 1, unit: '', label: 'Steps (needs run clip)' },
+  aimSupportDepth: { min: 0, max: 25, step: 1, unit: 'cm', label: 'Depth behind ball' },
+  supportLateral: { min: -15, max: 15, step: 1, unit: 'cm', label: 'Lateral from ball' },
+  supportPoint: { min: -30, max: 30, step: 1, unit: '°', label: 'Point (toe yaw)' },
   tilt: { min: 0, max: 30, step: 1, unit: '°', label: 'Tilt (lean)' },
   hipTurn: { min: 0, max: 60, step: 1, unit: '°', label: 'Hip Turn' },
   kneeAim: { min: -20, max: 10, step: 1, unit: 'cm', label: 'Knee plumb (− behind / + ahead of ball)' },

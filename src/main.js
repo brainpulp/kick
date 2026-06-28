@@ -174,10 +174,6 @@ loadCharacter(scene).then(({ model, bones, rest }) => {
     envtl.setVisible(v);
     const kf = document.getElementById('timeline'); if (kf) kf.style.display = v ? 'none' : '';
   });
-  const runF = gui.addFolder('Run-up');
-  runF.add(params, 'runupAngle', 0, 90, 1).name('Approach angle °')
-    .onChange(() => { params.playing = false; params.scrub = Math.min(0.25, mocapContactT * 0.5); applyFrame(params.scrub * CLIP_END); });
-  runF.add(params, 'runupSteps', 0, 5, 1).name('Steps (needs run clip)');
   gui.add(params, 'delay', 0, 3, 0.05).name('Delay before kick (s)');
   const axF = gui.addFolder('Body axes');
   axF.close();
@@ -284,7 +280,8 @@ function paramMoment(key) {
     case 'hop': return timings.hop.peak;
     case 'followDir': case 'followStrength': case 'slippage': return mid;
     case 'lockAnkle': case 'kneeAim': case 'hipTurn': case 'footZone': case 'ballZone': return c;
-    case 'aimSupportDepth': return Math.max(0, c * 0.85); // around the plant
+    case 'aimSupportDepth': case 'supportLateral': case 'supportPoint': return Math.max(0, c * 0.85); // the plant
+    case 'runupAngle': case 'runupSteps': return Math.min(0.25, c * 0.5); // mid run-up
     default: return null; // footedness etc. — don't move the playhead
   }
 }
@@ -297,6 +294,7 @@ function applyFrame(tt) {
   } else if (params.source === 'mocap' && mocapAvailable) {
     mocap.seek(tn);                       // baked clip...
     applyOverrides(bonesRef, restRef, params); // ...+ live parameter overrides
+    applySupport(tn);                     // plant-foot stance (depth/lateral/point)
     applyRecoil(tn);                      // cock-back (pre-contact)
     applyWhip(tn);                        // strike: femur+knee drive, pelvis un-wind
     applyTorso(tn);                       // trunk counter-strike over the ball
@@ -372,6 +370,35 @@ function applyTilt(scrubN) {
   _tiltQuat.setFromAxisAngle(_tiltAxis, sign * deg * DEG);
   mocapModel.position.sub(_tiltPivot).applyQuaternion(_tiltQuat).add(_tiltPivot);
   mocapModel.quaternion.premultiply(_tiltQuat);
+}
+
+// Plant (support) foot placement: nudge the support foot to a different stance
+// while the body stays put (the kicking foot stays on the ball). Approximated by
+// rotating the support hip (depth back/forward, lateral in/out) + foot yaw
+// (point), ramped over the plant window. ~0.73°/cm at this leg length.
+const _spQuat = new THREE.Quaternion();
+const _spEuler = new THREE.Euler();
+function supportEnv(tn) {
+  if (tn < 0.26 || tn > 0.92) return 0;
+  if (tn < 0.36) return _smooth((tn - 0.26) / 0.10);
+  if (tn > 0.82) return 1 - _smooth((tn - 0.82) / 0.10);
+  return 1;
+}
+function applySupport(tn) {
+  const e = supportEnv(tn);
+  if (e < 0.01) return;
+  const S = params.footedness === 'right' ? 'Left' : 'Right'; // plant foot
+  const mir = params.footedness === 'right' ? 1 : -1;
+  const depthDeg = -((params.aimSupportDepth || 0) - 12) * 0.73 * e; // behind ball → thigh back
+  const latDeg = (params.supportLateral || 0) * 0.73 * e;            // + = wider toward plant side
+  const ptDeg = (params.supportPoint || 0) * e;                      // toe yaw
+  const add = (name, x, y, z) => {
+    const b = bonesRef[name]; if (!b) return;
+    _spEuler.set(x * DEG, y * DEG, z * DEG, 'XYZ');
+    b.quaternion.multiply(_spQuat.setFromEuler(_spEuler));
+  };
+  add(`${S}UpLeg`, depthDeg, 0, mir * latDeg);  // sagittal = depth, lateral = sideways
+  add(`${S}Foot`, 0, mir * ptDeg, 0);           // yaw the toe (point off-target for effect)
 }
 
 // Angle the run-up: rotate the whole (clean mocap) approach about the ball so the

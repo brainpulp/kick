@@ -10,39 +10,42 @@ export function createPanel({ onChange, onReplay, onParam }) {
   // parameter acts, so you see exactly the frame you're editing.
   const edited = (key) => { if (onParam) onParam(key); else if (onChange) onChange(); };
 
-  const handles = gui.addFolder('Rig handles (MOTION.md §15)');
+  const handles = gui.addFolder('Rig handles (by stage)');
 
-  // Add a control plus a small "↺" reset-to-default button on its own line.
-  const withReset = (ctrl, key) => {
+  // Add a control to a folder plus a small "↺" reset-to-default button.
+  const withReset = (f, ctrl, key) => {
     ctrl.onChange(() => edited(key));
-    handles.add({ reset: () => { params[key] = DEFAULTS[key]; ctrl.updateDisplay(); edited(key); } }, 'reset')
+    f.add({ reset: () => { params[key] = DEFAULTS[key]; ctrl.updateDisplay(); edited(key); } }, 'reset')
       .name(`↺ reset ${typeof DEFAULTS[key] === 'number' ? DEFAULTS[key] : ''}`.trim());
     return ctrl;
   };
-  const slider = (key) => {
+  const slider = (f, key) => {
     const m = meta[key];
-    withReset(handles.add(params, key, m.min, m.max, m.step).name(`${m.label} ${m.unit}`.trim()), key);
+    withReset(f, f.add(params, key, m.min, m.max, m.step).name(`${m.label} ${m.unit}`.trim()), key);
   };
-  slider('aimSupportDepth');
-  slider('tilt');
-  slider('hipTurn');
-  slider('kneeAim');
-  slider('lockAnkle');
-  slider('recoil');
-  slider('torsoBend');
-  slider('armSwing');
-  slider('whip');
-  slider('followDir');
-  slider('followStrength');
-  slider('slippage');
-  withReset(handles.add(params, 'footZone', FOOT_ZONES).name('Points: foot zone'), 'footZone');
-  withReset(handles.add(params, 'ballZone', BALL_ZONES).name('Points: ball zone'), 'ballZone');
-  withReset(handles.add(params, 'footedness', FOOTEDNESS).name('Footedness'), 'footedness');
+  // Stage groups (chronological).
+  const fRun = handles.addFolder('Run-up');
+  slider(fRun, 'runupAngle'); slider(fRun, 'runupSteps');
+  const fPlant = handles.addFolder('Plant / support foot');
+  slider(fPlant, 'aimSupportDepth'); slider(fPlant, 'supportLateral'); slider(fPlant, 'supportPoint');
+  const fLean = handles.addFolder('Body lean (sustained)');
+  slider(fLean, 'tilt');
+  const fRecoil = handles.addFolder('Recoil');
+  slider(fRecoil, 'recoil');
+  const fKick = handles.addFolder('Kick (strike)');
+  slider(fKick, 'hipTurn'); slider(fKick, 'kneeAim'); slider(fKick, 'lockAnkle');
+  slider(fKick, 'whip'); slider(fKick, 'torsoBend'); slider(fKick, 'armSwing');
+  const fContact = handles.addFolder('Contact');
+  withReset(fContact, fContact.add(params, 'footZone', FOOT_ZONES).name('Foot zone'), 'footZone');
+  withReset(fContact, fContact.add(params, 'ballZone', BALL_ZONES).name('Ball zone'), 'ballZone');
+  const fFollow = handles.addFolder('Follow-up');
+  slider(fFollow, 'followDir'); slider(fFollow, 'followStrength'); slider(fFollow, 'slippage');
+  withReset(handles, handles.add(params, 'footedness', FOOTEDNESS).name('Footedness'), 'footedness');
 
   // Reset every rig handle at once.
   handles.add({
     resetAll: () => {
-      for (const k of ['aimSupportDepth', 'tilt', 'hipTurn', 'kneeAim', 'lockAnkle', 'recoil', 'torsoBend', 'armSwing', 'whip', 'followDir', 'followStrength', 'slippage', 'footZone', 'ballZone', 'footedness']) {
+      for (const k of ['runupAngle', 'runupSteps', 'aimSupportDepth', 'supportLateral', 'supportPoint', 'tilt', 'hipTurn', 'kneeAim', 'lockAnkle', 'recoil', 'torsoBend', 'armSwing', 'whip', 'followDir', 'followStrength', 'slippage', 'footZone', 'ballZone', 'footedness']) {
         params[k] = DEFAULTS[k];
       }
       gui.controllersRecursive().forEach((c) => c.updateDisplay());
