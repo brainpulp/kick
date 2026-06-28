@@ -3,17 +3,19 @@ import { params, meta, DEFAULTS, FOOT_ZONES, BALL_ZONES, FOOTEDNESS } from '../k
 
 // Build the slider/dropdown panel. `onChange` fires whenever a kick parameter
 // changes so the caller can replay/refresh. `onReplay` is the Replay button.
-export function createPanel({ onChange, onReplay }) {
+export function createPanel({ onChange, onReplay, onParam }) {
   const gui = new GUI({ title: 'Kick parameters' });
 
-  const change = () => onChange && onChange();
+  // A parameter edit: refresh the pose AND jump the scrub to the moment that
+  // parameter acts, so you see exactly the frame you're editing.
+  const edited = (key) => { if (onParam) onParam(key); else if (onChange) onChange(); };
 
   const handles = gui.addFolder('Rig handles (MOTION.md §15)');
 
   // Add a control plus a small "↺" reset-to-default button on its own line.
   const withReset = (ctrl, key) => {
-    ctrl.onChange(change);
-    handles.add({ reset: () => { params[key] = DEFAULTS[key]; ctrl.updateDisplay(); change(); } }, 'reset')
+    ctrl.onChange(() => edited(key));
+    handles.add({ reset: () => { params[key] = DEFAULTS[key]; ctrl.updateDisplay(); edited(key); } }, 'reset')
       .name(`↺ reset ${typeof DEFAULTS[key] === 'number' ? DEFAULTS[key] : ''}`.trim());
     return ctrl;
   };
@@ -32,6 +34,7 @@ export function createPanel({ onChange, onReplay }) {
   slider('whip');
   slider('followDir');
   slider('followStrength');
+  slider('slippage');
   withReset(handles.add(params, 'footZone', FOOT_ZONES).name('Points: foot zone'), 'footZone');
   withReset(handles.add(params, 'ballZone', BALL_ZONES).name('Points: ball zone'), 'ballZone');
   withReset(handles.add(params, 'footedness', FOOTEDNESS).name('Footedness'), 'footedness');
@@ -39,11 +42,11 @@ export function createPanel({ onChange, onReplay }) {
   // Reset every rig handle at once.
   handles.add({
     resetAll: () => {
-      for (const k of ['aimSupportDepth', 'tilt', 'hipTurn', 'kneeAim', 'lockAnkle', 'recoil', 'torsoBend', 'armSwing', 'whip', 'followDir', 'followStrength', 'footZone', 'ballZone', 'footedness']) {
+      for (const k of ['aimSupportDepth', 'tilt', 'hipTurn', 'kneeAim', 'lockAnkle', 'recoil', 'torsoBend', 'armSwing', 'whip', 'followDir', 'followStrength', 'slippage', 'footZone', 'ballZone', 'footedness']) {
         params[k] = DEFAULTS[k];
       }
       gui.controllersRecursive().forEach((c) => c.updateDisplay());
-      change();
+      onChange && onChange();
     },
   }, 'resetAll').name('↺↺ Reset all rig handles');
 
