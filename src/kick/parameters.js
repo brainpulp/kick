@@ -88,7 +88,7 @@ export const params = {
   runupAngle: 45,   // approach angle of the run-up (deg from straight-on, toward plant side)
 
   // Body-axis annotation lines (master toggle + per-axis).
-  showAxes: false,
+  showAxes: true,
   axHips: true,
   axShoulders: true,
   axToes: true,
@@ -109,7 +109,7 @@ export const meta = {
   tilt: { min: 0, max: 30, step: 1, unit: '°', label: 'Tilt (lean)' },
   hipTurn: { min: 0, max: 60, step: 1, unit: '°', label: 'Hip Turn' },
   kneeAim: { min: -20, max: 10, step: 1, unit: 'cm', label: 'Knee plumb (− behind / + ahead of ball)' },
-  lockAnkle: { min: 0, max: 40, step: 1, unit: '°', label: 'Lock Ankle' },
+  lockAnkle: { min: 0, max: 90, step: 1, unit: '°', label: 'Lock Ankle' },
   recoil: { min: 0, max: 60, step: 1, unit: '°', label: 'Recoil (cock-back)' },
   torsoBend: { min: 0, max: 40, step: 1, unit: '°', label: 'Torso counter-strike' },
   armSwing: { min: 0, max: 1, step: 0.05, unit: '', label: 'Counter arm' },
