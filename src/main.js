@@ -137,6 +137,17 @@ loadCharacter(scene).then(({ model, bones, rest }) => {
       .onChange(() => { if (!params.playing) applyFrame(params.scrub * CLIP_END); });
   }
   buildSourceCtrl();
+
+  // Camera preset views (the model faces -Z, toward the goal; the ball is at origin).
+  const setView = (px, py, pz, tx, ty, tz) => {
+    camera.position.set(px, py, pz); controls.target.set(tx, ty, tz); controls.update();
+  };
+  const views = gui.addFolder('Views');
+  views.add({ f: () => setView(0, 1.5, -5.5, 0, 0.9, 0) }, 'f').name('Front');   // from the goal, facing the player
+  views.add({ f: () => setView(5.5, 1.5, 0, 0, 0.9, 0) }, 'f').name('Side');     // kicking-leg side
+  views.add({ f: () => setView(0, 9, 0.01, 0, 0, 0) }, 'f').name('Top');         // straight down
+  views.add({ f: () => setView(3.6, 1.8, 4.2, 0, 0.9, -0.3) }, 'f').name('Default (3/4)');
+
   gui.add(params, 'rootMotion').name('Root motion (locomotion)')
     .onChange(() => { if (!params.playing) applyFrame(params.scrub * CLIP_END); });
   envtl = createEnvTimeline({
@@ -409,8 +420,8 @@ function applyTorso(scrubN) {
 
 // Counter arm (opposite the kicking leg). Driven off the REST pose and blended
 // in by `armSwing` — NOT added to the baked swing — so the motion is clean and
-// predictable (no compounding with the mocap arm). Stretched back & up early,
-// swinging down & forward through the strike.
+// predictable. Held forward & up during the run-up, then swings back & up from
+// the end of the recoil (counter to the leg driving through).
 const _armEuler = new THREE.Euler();
 const _armOff = new THREE.Quaternion();
 const _armTarget = new THREE.Quaternion();
@@ -423,11 +434,11 @@ function poseArm(name, xDeg, zDeg, amt) {
 function applyArms(scrubN) {
   const amt = params.armSwing || 0;
   if (amt < 0.001) return;
-  const p = env(scrubN, timings.arm); // 0 early (back&up) → 1 end (down&forward)
+  const p = env(scrubN, timings.arm); // 0 = forward&up (run-up) → 1 = back&up (after recoil)
   const S = params.footedness === 'right' ? 'Left' : 'Right'; // arm opposite the kicking leg
   const sgn = S === 'Left' ? -1 : 1;                          // abduction sign for that side
-  poseArm(`${S}Arm`, -35 + 80 * p, sgn * (75 - 80 * p), amt); // back&up → forward&down
-  poseArm(`${S}ForeArm`, 15 + 25 * p, 0, amt);                // slight elbow flex into the finish
+  poseArm(`${S}Arm`, 40 - 65 * p, sgn * (55 + 15 * p), amt);  // forward&up → back&up
+  poseArm(`${S}ForeArm`, 20 + 15 * p, 0, amt);                // slight elbow flex
 }
 
 // One leg of a jog cycle (phase 0..1): forward swing then planted sweep.
@@ -486,9 +497,9 @@ function clipTimeFromWarp(w, segs) {
 // immune to the whole-body run-up travel. Then place that foot on the ball.
 function calibrateMocap() {
   const K = params.footedness === 'right' ? 'Right' : 'Left';
-  const foot = bonesRef[`${K}ToeBase`] || bonesRef[`${K}Foot`];
+  const foot = bonesRef[`${K}Foot`] || bonesRef[`${K}ToeBase`]; // instep = strike surface
   if (!foot) return;
-  const N = 80, fl = [];
+  const N = 120, fl = [];
   const wp = new THREE.Vector3();
   for (let i = 0; i <= N; i++) {
     const tn = i / N;
@@ -498,30 +509,23 @@ function calibrateMocap() {
     foot.getWorldPosition(wp);
     fl.push({ tn, x: wp.x, y: wp.y, z: wp.z });
   }
-  // Contact = fastest forward foot motion (most negative dz) in the back half.
+  // Contact = fastest forward foot motion within the strike window (before the
+  // follow-through strides), i.e. the moment the foot drives through the ball.
   let best = null;
   for (let i = 1; i <= N; i++) {
-    if (fl[i].tn < 0.35 || fl[i].tn > 0.97) continue;
+    if (fl[i].tn < 0.30 || fl[i].tn > 0.55) continue;
     const dz = fl[i].z - fl[i - 1].z;            // forward is -Z
     if (!best || dz < best.dz) best = { i, dz, tn: fl[i].tn };
   }
-  const ci = best ? best.i : Math.round(N * 0.7);
+  const ci = best ? best.i : Math.round(N * 0.37);
   mocapContactT = fl[ci].tn;
-  // Place the PLANT (support) foot beside the ball: toes at the ball's front
-  // edge, 20 cm to the side. Measure the support toe in body space at contact,
-  // then solve for the shift (runtime world = local - rootOffset + align).
-  const S = K === 'Right' ? 'Left' : 'Right';
-  const supToe = bonesRef[`${S}ToeBase`] || bonesRef[`${S}Foot`] || foot;
-  mocap.seek(mocapContactT);
-  mocapModel.position.copy(mocapBase);
-  mocapModel.updateMatrixWorld(true);
-  const sp = supToe.getWorldPosition(new THREE.Vector3());
+  // Anchor the KICKING foot to the ball (origin) at contact so the foot actually
+  // strikes it. The plant foot then lands wherever the clip places it — a
+  // realistic plant-to-ball offset that comes straight from the mocap.
   const o = mocap.rootOffset(mocapContactT) || { x: 0, z: 0 };
-  const sideX = (K === 'Right' ? 1 : -1) * 0.20; // plant foot to the player's plant side
-  const frontZ = -BALL_RADIUS;                   // toes level with the ball's front edge
-  mocapAlign = { x: sideX - sp.x + o.x, z: frontZ - sp.z + o.z };
+  mocapAlign = { x: o.x - fl[ci].x, z: o.z - fl[ci].z };
   // eslint-disable-next-line no-console
-  console.log(`[mocap] contactT=${mocapContactT.toFixed(2)} align=(${mocapAlign.x.toFixed(2)},${mocapAlign.z.toFixed(2)})`);
+  console.log(`[mocap] contactT=${mocapContactT.toFixed(3)} align=(${mocapAlign.x.toFixed(2)},${mocapAlign.z.toFixed(2)})`);
 }
 
 const clock = new THREE.Clock();
