@@ -161,10 +161,16 @@ loadCharacter(scene).then(({ model, bones, rest }) => {
     .onChange(() => { if (!params.playing) applyFrame(params.scrub * CLIP_END); });
   envtl = createEnvTimeline({
     onChange: () => { if (!params.playing) applyFrame(params.scrub * CLIP_END); },
+    onScrub: (f) => { params.playing = false; params.scrub = f; applyFrame(f * CLIP_END); },
     getScrub: () => params.scrub,
   });
   envtl.setVisible(false);
-  gui.add({ timing: false }, 'timing').name('⏱ Timing editor').onChange((v) => envtl.setVisible(v));
+  // Showing the full-width timing editor hides the keyframe-editor bar (its own
+  // ruler scrubs), so there's a single playhead.
+  gui.add({ timing: false }, 'timing').name('⏱ Timing editor').onChange((v) => {
+    envtl.setVisible(v);
+    const kf = document.getElementById('timeline'); if (kf) kf.style.display = v ? 'none' : '';
+  });
   gui.add(params, 'runupSteps', 0, 5, 1).name('Run-up steps');
   gui.add(params, 'runupAngle', 0, 90, 1).name('Run-up angle °');
   gui.add(params, 'delay', 0, 3, 0.05).name('Delay before kick (s)');
