@@ -38,17 +38,32 @@ export const params = {
   // it). Peaks at the top of the backswing, released by contact.
   recoil: 30,
 
+  // Torso counter-strike — as the knee drives forward the trunk bends forward
+  // over the ball (deg of spine flexion). Keeps the ball down, adds power. Peaks
+  // at contact, eases through the follow-up.
+  torsoBend: 20,
+
+  // Counter arm — the arm opposite the kicking leg. Starts stretched back & up
+  // during the run-up, swings with the shoulders/hips toward the kicking foot,
+  // and finishes pointing down & forward. 0 = off, 1 = full.
+  armSwing: 1.0,
+
   // §12 Whip — knee-extension drive (0..1) → strike power/velocity.
   whip: 0.75,
 
   // §13 Follow-Through — power vs control variant.
   followThrough: 'power',
 
-  // Follow-up angle — direction of the follow-through relative to the ball's
-  // straight-on line (deg). 0 = straight on (ball continues down the goal line);
-  // up to 90° toward the NON-kicking foot. Acts from contact through follow-up:
-  // sets the ball's launch azimuth and sweeps the kicking leg/hips that way.
-  followUp: 0,
+  // Follow-up DIRECTION — where the ball goes (deg from straight-on toward the
+  // NON-kicking foot). 0 = straight down the goal line; 90 = fully sideways. Sets
+  // the ball's launch azimuth.
+  followDir: 0,
+
+  // Follow-up STRENGTH — how big the body follow-through is (deg of hip rotation
+  // toward the plant foot). 0 = stop the foot at the ball (no follow-up); up to
+  // 90° = full follow-through: hips rotate, the kicking leg crosses over, weight
+  // transfers onto the kicking foot. Acts from contact onward.
+  followStrength: 0,
 
   // playback
   playing: true,
@@ -85,9 +100,12 @@ export const meta = {
   aimSupportDepth: { min: 0, max: 25, step: 1, unit: 'cm', label: 'Aim Support (depth)' },
   tilt: { min: 0, max: 30, step: 1, unit: '°', label: 'Tilt (lean)' },
   hipTurn: { min: 0, max: 60, step: 1, unit: '°', label: 'Hip Turn' },
-  kneeAim: { min: -15, max: 15, step: 1, unit: 'cm', label: 'Knee Aim (over ball)' },
+  kneeAim: { min: -20, max: 10, step: 1, unit: 'cm', label: 'Knee plumb (− behind / + ahead of ball)' },
   lockAnkle: { min: 0, max: 40, step: 1, unit: '°', label: 'Lock Ankle' },
   recoil: { min: 0, max: 60, step: 1, unit: '°', label: 'Recoil (cock-back)' },
+  torsoBend: { min: 0, max: 40, step: 1, unit: '°', label: 'Torso counter-strike' },
+  armSwing: { min: 0, max: 1, step: 0.05, unit: '', label: 'Counter arm' },
   whip: { min: 0, max: 1, step: 0.01, unit: '', label: 'Whip (power)' },
-  followUp: { min: 0, max: 90, step: 1, unit: '°', label: 'Follow-up angle' },
+  followDir: { min: 0, max: 90, step: 1, unit: '°', label: 'Follow-up direction (ball)' },
+  followStrength: { min: 0, max: 90, step: 1, unit: '°', label: 'Follow-up strength (body)' },
 };

@@ -72,9 +72,9 @@ export class KickAnimation {
     else if (p.footZone === 'outside') { azimuth = 7 * mir; spin = 1 * mir; }
     if (p.ballZone === 'off-center') spin += 0.6 * mir;
 
-    // Follow-up angle: the ball leaves along the follow-through line, deflected
-    // toward the NON-kicking foot (right-footer → player's left → -X). 0 = straight.
-    azimuth += -(p.followUp || 0) * mir;
+    // Follow-up direction: the ball leaves deflected toward the NON-kicking foot
+    // (right-footer → player's left → -X). 0 = straight.
+    azimuth += -(p.followDir || 0) * mir;
 
     return { speed, elevation, azimuth, spin };
   }

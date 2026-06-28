@@ -240,6 +240,8 @@ function applyFrame(tt) {
     mocap.seek(tn);                       // baked clip...
     applyOverrides(bonesRef, restRef, params); // ...+ live parameter overrides
     applyRecoil(tn);                      // cock-back (pre-contact)
+    applyTorso(tn);                       // trunk counter-strike over the ball
+    applyArms(tn);                        // counter-arm swing
     applyFollowUp(tn);                     // follow-through sweep (post-contact)
     // Root motion: model faces -Z (rotation.y = PI) so negate clip X/Z; align
     // shift makes the strike foot meet the ball.
@@ -326,7 +328,7 @@ function followEnvelope(scrubN) {
 const _fuQuat = new THREE.Quaternion();
 const _fuEuler = new THREE.Euler();
 function applyFollowUp(scrubN) {
-  const amt = (params.followUp || 0) / 90 * followEnvelope(scrubN); // 0..1
+  const amt = (params.followStrength || 0) / 90 * followEnvelope(scrubN); // 0..1
   if (amt < 0.01) return;
   const mir = params.footedness === 'right' ? 1 : -1;
   const K = params.footedness === 'right' ? 'Right' : 'Left';
@@ -369,6 +371,57 @@ function applyRecoil(scrubN) {
   add('Hips', 0, deg * 0.5 * mir, 0);     // pelvis winds toward the kicking foot
   add(`${K}UpLeg`, -deg, 0, 0);           // kicking femur pulls back (hip extension)
   add(`${K}Leg`, -deg * 1.2, 0, 0);       // knee flexes (cocks the lower leg)
+}
+
+// Torso counter-strike envelope (0..1): the trunk bends forward as the knee
+// drives in — ramps through the whip to peak at contact, then eases through the
+// follow-up (the player stays folded over the ball, recovering by the end).
+function torsoEnvelope(scrubN) {
+  const c = mocapContactT;
+  const w0 = 0.85 * c;
+  if (scrubN <= w0) return 0;
+  if (scrubN <= c) return _smooth((scrubN - w0) / Math.max(1e-3, c - w0));
+  return 1 - 0.7 * _smooth((scrubN - c) / Math.max(1e-3, 1 - c)); // settle to 0.3 then out
+}
+
+// Forward trunk flexion over the ball, distributed across the spine chain.
+const _tbQuat = new THREE.Quaternion();
+const _tbEuler = new THREE.Euler();
+function applyTorso(scrubN) {
+  const deg = (params.torsoBend || 0) * torsoEnvelope(scrubN);
+  if (deg < 0.05) return;
+  const per = deg / 3; // spread over the 3 spine joints
+  for (const s of ['Spine', 'Spine1', 'Spine2']) {
+    const b = bonesRef[s]; if (!b) continue;
+    _tbEuler.set(per * DEG, 0, 0, 'XYZ');
+    b.quaternion.multiply(_tbQuat.setFromEuler(_tbEuler));
+  }
+}
+
+// Counter arm (opposite the kicking leg). Overrides the baked arm so the teaching
+// pose is clear: stretched back & up early, swinging down & forward through the
+// strike. `p` is a 0..1 progression from the recoil to the end of the follow-up.
+const _armQuat = new THREE.Quaternion();
+const _armEuler = new THREE.Euler();
+function applyArms(scrubN) {
+  const amt = params.armSwing || 0;
+  if (amt < 0.01) return;
+  const c = mocapContactT;
+  const p = _smooth((scrubN - 0.6 * c) / Math.max(1e-3, 1 - 0.6 * c)); // 0 early → 1 end
+  const S = params.footedness === 'right' ? 'Left' : 'Right'; // arm opposite the kicking leg
+  const sgn = S === 'Left' ? -1 : 1;                          // abduction sign for that side
+  const arm = bonesRef[`${S}Arm`]; const fore = bonesRef[`${S}ForeArm`];
+  // back&up (p=0) → down&forward (p=1)
+  const flexX = -45 + 95 * p;      // X: back → forward
+  const abductZ = (60 - 70 * p);   // Z: out/up → down/in
+  if (arm) {
+    _armEuler.set(flexX * amt * DEG, 0, sgn * abductZ * amt * DEG, 'XYZ');
+    arm.quaternion.multiply(_armQuat.setFromEuler(_armEuler));
+  }
+  if (fore) {
+    _armEuler.set((10 + 30 * p) * amt * DEG, 0, 0, 'XYZ'); // slight elbow flex into the finish
+    fore.quaternion.multiply(_armQuat.setFromEuler(_armEuler));
+  }
 }
 
 // One leg of a jog cycle (phase 0..1): forward swing then planted sweep.
