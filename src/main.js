@@ -238,6 +238,7 @@ function applyFrame(tt) {
   } else if (params.source === 'mocap' && mocapAvailable) {
     mocap.seek(tn);                       // baked clip...
     applyOverrides(bonesRef, restRef, params); // ...+ live parameter overrides
+    applyFollowUp(tn);                     // follow-through sweep (post-contact)
     // Root motion: model faces -Z (rotation.y = PI) so negate clip X/Z; align
     // shift makes the strike foot meet the ball.
     const o = params.rootMotion ? mocap.rootOffset(tn) : null;
@@ -307,6 +308,33 @@ function applyTilt(scrubN) {
   _tiltQuat.setFromAxisAngle(_tiltAxis, sign * deg * DEG);
   mocapModel.position.sub(_tiltPivot).applyQuaternion(_tiltQuat).add(_tiltPivot);
   mocapModel.quaternion.premultiply(_tiltQuat);
+}
+
+// Follow-up timing envelope (0..1): zero until contact, then ramps to full by
+// the end of the follow-up. The follow-through is a post-contact action.
+function followEnvelope(scrubN) {
+  const c = mocapContactT;
+  if (scrubN <= c) return 0;
+  return _smooth((scrubN - c) / Math.max(1e-3, 1 - c));
+}
+
+// Body expression of the follow-up angle: after contact the hips keep turning
+// and the kicking leg sweeps across toward the non-kicking foot, in the same
+// direction the ball was sent (set in computeLaunch). Layered on the baked pose.
+const _fuQuat = new THREE.Quaternion();
+const _fuEuler = new THREE.Euler();
+function applyFollowUp(scrubN) {
+  const amt = (params.followUp || 0) / 90 * followEnvelope(scrubN); // 0..1
+  if (amt < 0.01) return;
+  const mir = params.footedness === 'right' ? 1 : -1;
+  const K = params.footedness === 'right' ? 'Right' : 'Left';
+  const add = (name, x, y, z) => {
+    const b = bonesRef[name]; if (!b) return;
+    _fuEuler.set(x * DEG, y * DEG, z * DEG, 'XYZ');
+    b.quaternion.multiply(_fuQuat.setFromEuler(_fuEuler));
+  };
+  add('Hips', 0, amt * 25 * mir, 0);          // pelvis keeps rotating toward target
+  add(`${K}UpLeg`, 0, 0, -amt * 35 * mir);    // kicking leg sweeps across the body
 }
 
 // One leg of a jog cycle (phase 0..1): forward swing then planted sweep.

@@ -30,6 +30,12 @@ export class Annotations {
     this.dist = makeDistanceLine(0x8fd0ff);
     scene.add(this.dist.group);
 
+    // Follow-up direction: a faint straight-on reference and a bright line from
+    // the ball showing where the follow-through sends it (the launch azimuth).
+    this.followRef = axisLine(0x6f8fb0);
+    this.followDir = axisLine(0xffa23f);
+    scene.add(this.followRef, this.followDir);
+
     // Body-axis lines (toggleable) that extend from key body parts.
     this.axes = {
       hips: axisLine(0xff5d5d),
@@ -54,6 +60,15 @@ export class Annotations {
       new THREE.Vector3(center.x + 0.25, 0.03, center.z),
       new THREE.Vector3(center.x + 0.25, 0.03, center.z + d),
     );
+
+    // Follow-up direction from the ball's launch point (origin). Straight-on is
+    // -Z; the follow-up line deflects toward the non-kicking foot by `followUp`.
+    const mir = params.footedness === 'right' ? 1 : -1;
+    const ballPos = new THREE.Vector3(0, 0.04, 0);
+    const straight = new THREE.Vector3(0, 0, -1);
+    const fdir = straight.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), (params.followUp || 0) * DEG * mir);
+    setLine(this.followRef, !!params.showAxes, ballPos, straight, 5, false);
+    setLine(this.followDir, (params.followUp || 0) > 0.5, ballPos, fdir, 5, false);
 
     this.updateAxes(params);
   }

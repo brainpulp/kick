@@ -7,7 +7,7 @@ const STORE = 'kick.scenarios.v1';
 
 // The full set of control fields a scenario captures.
 export const SCENARIO_FIELDS = [
-  'aimSupportDepth', 'tilt', 'hipTurn', 'kneeAim', 'lockAnkle', 'whip',
+  'aimSupportDepth', 'tilt', 'hipTurn', 'kneeAim', 'lockAnkle', 'whip', 'followUp',
   'footZone', 'ballZone', 'followThrough', 'footedness',
   'source', 'rootMotion', 'speed', 'delay',
   'spdPreRunup', 'spdRunup', 'spdRecoil', 'spdWhip', 'spdFollow',
