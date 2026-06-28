@@ -69,9 +69,9 @@ export class Annotations {
     const mir = params.footedness === 'right' ? 1 : -1;
     const ballPos = new THREE.Vector3(0, 0.04, 0);
     const straight = new THREE.Vector3(0, 0, -1);
-    const fdir = straight.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), (params.followUp || 0) * DEG * mir);
+    const fdir = straight.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), (params.followDir || 0) * DEG * mir);
     setLine(this.followRef, !!params.showAxes, ballPos, straight, 5, false);
-    setLine(this.followDir, (params.followUp || 0) > 0.5, ballPos, fdir, 5, false);
+    setLine(this.followDir, (params.followDir || 0) > 0.5, ballPos, fdir, 5, false);
 
     this.updateAxes(params);
   }
