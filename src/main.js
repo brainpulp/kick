@@ -474,44 +474,23 @@ function animate() {
     if (!params.playing) {
       applyFrame(params.scrub * CLIP_END);            // paused: scrub the pose
     } else if (params.source === 'mocap' && mocapAvailable) {
-      // Imported clip: optional procedural run-up lead-in, then time-warped clip.
+      // Imported clip plays through directly: it is a seamless running loop with
+      // the kick baked in, so its own approach strides are clean mocap (no
+      // synthetic jog → no foot sliding, no seam). Procedural extra steps / the
+      // angled approach need a dedicated run clip (see MOTION.md); paused for now.
       const rate = Math.max(0.05, params.speed);
       const segs = mocapStages();
       const warpLen = segs.reduce((a, s) => a + (s.t1 - s.t0) / s.sp, 0); // normalized
       const clipWall = warpLen * mocap.duration / rate;
-      const steps = Math.round(params.runupSteps || 0);
-      const stepWall = 0.34 / rate;             // wall seconds per foot-fall
-      const runupWall = steps * stepWall;
-      const period = params.delay + runupWall + clipWall;
+      const period = params.delay + clipWall;
       mocapPlayT += dt;
       if (mocapPlayT >= period) { mocapPlayT -= period; resetBall(); }
       const w = mocapPlayT - params.delay;
-
-      // Clip start position (= where the run-up must hand off) and the run-up
-      // start, `steps` strides behind it along the approach. The approach comes
-      // in at `runupAngle` off the straight-on line, toward the plant side, so
-      // `back` is the offset from the ball back to where the run-up begins.
-      const STEP_LEN = 1.5;                       // match the imported clip's stride
-      const mirR = params.footedness === 'right' ? 1 : -1;
-      const phi = -(params.runupAngle || 0) * DEG * mirR; // toward the plant side
-      const clipStart = new THREE.Vector3(mocapBase.x + mocapAlign.x, mocapBase.y, mocapBase.z + mocapAlign.z);
-      const back = new THREE.Vector3(Math.sin(phi), 0, Math.cos(phi)).multiplyScalar(steps * STEP_LEN);
-      const runYaw = phi + Math.PI;              // face along the travel direction
-      if (w < 0) {                               // delay: hold at run-up start
-        poseJog(0);
-        mocapModel.position.set(clipStart.x + back.x, clipStart.y, clipStart.z + back.z);
-        mocapModel.rotation.set(0, runYaw, 0);
-        groundModel();
-      } else if (w < runupWall) {                // procedural jog in
-        const f = w / runupWall;
-        poseJog((w / stepWall) * 0.5);           // each foot-fall = half a cycle
-        mocapModel.position.set(clipStart.x + back.x * (1 - f), clipStart.y, clipStart.z + back.z * (1 - f));
-        // Square up to the goal over the last third so the hand-off is seamless.
-        const turn = _smooth((f - 0.66) / 0.34);
-        mocapModel.rotation.set(0, runYaw + (Math.PI - runYaw) * turn, 0);
-        groundModel();
-      } else {                                   // imported clip
-        const wc = (w - runupWall) * rate / mocap.duration;
+      if (w < 0) {                               // delay: hold on the first frame
+        params.scrub = 0;
+        applyFrame(0);
+      } else {                                   // play the clip through
+        const wc = w * rate / mocap.duration;
         params.scrub = clipTimeFromWarp(wc, segs);
         applyFrame(params.scrub * CLIP_END);
         stepBall(dt);
