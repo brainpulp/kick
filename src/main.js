@@ -13,6 +13,7 @@ import { timings, env } from './kick/timing.js';
 import { BONES } from './character.js';
 import { loadExternalClip, retargetClip, MocapPlayer, applyOverrides } from './kick/mocap.js';
 import { scenarioStore, snapshot, applyScenario } from './scenarios.js';
+import { loadState, startAutosave } from './persist.js';
 
 const SECONDS_FULL = 2.4; // wall-clock seconds for the whole 0..CLIP_END clip
 const GRAVITY = 9.81;
@@ -127,6 +128,8 @@ loadCharacter(scene).then(({ model, bones, rest }) => {
   }
 
   params.source = 'authored'; // default to the shared keyframe clip (until an import loads)
+  loadState();                // restore saved parameter + timing adjustments
+  startAutosave();            // and keep saving them across reloads
   const gui = createPanel({
     onChange: () => { if (!params.playing) applyFrame(params.scrub * CLIP_END); },
     onReplay: () => { t = 0; mocapPlayT = 0; resetBall(); params.playing = true; },
@@ -172,7 +175,8 @@ loadCharacter(scene).then(({ model, bones, rest }) => {
     const kf = document.getElementById('timeline'); if (kf) kf.style.display = v ? 'none' : '';
   });
   gui.add(params, 'runupSteps', 0, 5, 1).name('Run-up steps');
-  gui.add(params, 'runupAngle', 0, 90, 1).name('Run-up angle °');
+  gui.add(params, 'runupAngle', 0, 90, 1).name('Run-up angle °')
+    .onChange(() => { params.playing = false; params.scrub = Math.min(0.25, mocapContactT * 0.5); applyFrame(params.scrub * CLIP_END); });
   gui.add(params, 'delay', 0, 3, 0.05).name('Delay before kick (s)');
   const axF = gui.addFolder('Body axes');
   axF.close();
@@ -314,6 +318,7 @@ function applyFrame(tt) {
     // Slippage: the plant foot slides forward through the follow-up.
     const sl = (params.slippage || 0) * followEnvelope(tn);
     if (sl > 0.001) mocapModel.position.z -= sl;
+    applyRunupAngle(tn); // angle the approach (rotate the run about the ball)
   } else if (params.source === 'authored' && editor && editor.keys.length) {
     editor.applyAt(tn);
   } else {
@@ -366,6 +371,27 @@ function applyTilt(scrubN) {
   _tiltQuat.setFromAxisAngle(_tiltAxis, sign * deg * DEG);
   mocapModel.position.sub(_tiltPivot).applyQuaternion(_tiltQuat).add(_tiltPivot);
   mocapModel.quaternion.premultiply(_tiltQuat);
+}
+
+// Angle the run-up: rotate the whole (clean mocap) approach about the ball so the
+// player comes in diagonally from the plant side, then squares up to the goal by
+// contact. Constant angle through most of the run (no skate — just a rotated
+// frame), turning to 0 over the last stretch before the plant.
+const _ruQuat = new THREE.Quaternion();
+const _ruAxis = new THREE.Vector3(0, 1, 0);
+const _ruPivot = new THREE.Vector3();
+function applyRunupAngle(tn) {
+  const deg = params.runupAngle || 0;
+  const c = mocapContactT;
+  if (deg < 0.5 || tn >= c) return;          // squared up by contact
+  const tTurn = 0.7 * c;
+  const a = tn <= tTurn ? deg : deg * (1 - _smooth((tn - tTurn) / Math.max(1e-3, c - tTurn)));
+  if (a < 0.05) return;
+  const mir = params.footedness === 'right' ? 1 : -1; // approach from the plant side
+  _ruPivot.set(0, 0, 0);                      // pivot at the ball (contact point)
+  _ruQuat.setFromAxisAngle(_ruAxis, -mir * a * DEG); // right-footer comes from the left
+  mocapModel.position.sub(_ruPivot).applyQuaternion(_ruQuat).add(_ruPivot);
+  mocapModel.quaternion.premultiply(_ruQuat);
 }
 
 function followEnvelope(scrubN) { return env(scrubN, timings.follow); }
