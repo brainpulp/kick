@@ -174,9 +174,10 @@ loadCharacter(scene).then(({ model, bones, rest }) => {
     envtl.setVisible(v);
     const kf = document.getElementById('timeline'); if (kf) kf.style.display = v ? 'none' : '';
   });
-  gui.add(params, 'runupSteps', 0, 5, 1).name('Run-up steps');
-  gui.add(params, 'runupAngle', 0, 90, 1).name('Run-up angle °')
+  const runF = gui.addFolder('Run-up');
+  runF.add(params, 'runupAngle', 0, 90, 1).name('Approach angle °')
     .onChange(() => { params.playing = false; params.scrub = Math.min(0.25, mocapContactT * 0.5); applyFrame(params.scrub * CLIP_END); });
+  runF.add(params, 'runupSteps', 0, 5, 1).name('Steps (needs run clip)');
   gui.add(params, 'delay', 0, 3, 0.05).name('Delay before kick (s)');
   const axF = gui.addFolder('Body axes');
   axF.close();
