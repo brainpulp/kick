@@ -248,6 +248,7 @@ function applyFrame(tt) {
     mocap.seek(tn);                       // baked clip...
     applyOverrides(bonesRef, restRef, params); // ...+ live parameter overrides
     applyRecoil(tn);                      // cock-back (pre-contact)
+    applyWhip(tn);                        // strike: femur+knee drive, pelvis un-wind
     applyTorso(tn);                       // trunk counter-strike over the ball
     applyArms(tn);                        // counter-arm swing
     applyFollowUp(tn);                     // follow-through sweep (post-contact)
@@ -364,6 +365,27 @@ function applyRecoil(scrubN) {
   add('Hips', 0, deg * 0.5 * mir, 0);     // pelvis winds toward the kicking foot
   add(`${K}UpLeg`, -deg, 0, 0);           // kicking femur pulls back (hip extension)
   add(`${K}Leg`, -deg * 1.2, 0, 0);       // knee flexes (cocks the lower leg)
+}
+
+// The whip (strike): femur drives forward AND the knee extends forward together,
+// while the pelvis un-winds back toward the non-kicking/plant foot (the power
+// source). Layered on the baked pose over the whip window. Scaled by `whip`.
+const _wpQuat = new THREE.Quaternion();
+const _wpEuler = new THREE.Euler();
+function applyWhip(scrubN) {
+  const e = env(scrubN, timings.whip);
+  const drive = (params.whip || 0) * e;
+  if (drive < 0.01) return;
+  const mir = params.footedness === 'right' ? 1 : -1;
+  const K = params.footedness === 'right' ? 'Right' : 'Left';
+  const add = (name, x, y, z) => {
+    const b = bonesRef[name]; if (!b) return;
+    _wpEuler.set(x * DEG, y * DEG, z * DEG, 'XYZ');
+    b.quaternion.multiply(_wpQuat.setFromEuler(_wpEuler));
+  };
+  add(`${K}UpLeg`, drive * 15, 0, 0);     // femur drives forward (hip flexion)
+  add(`${K}Leg`, drive * 22, 0, 0);       // knee extends forward (snaps through)
+  add('Hips', 0, -drive * 18 * mir, 0);   // pelvis un-winds toward the plant foot
 }
 
 // Torso counter-strike envelope (0..1): the trunk bends forward as the knee
