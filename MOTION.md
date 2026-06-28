@@ -1,198 +1,193 @@
 # Striking Architecture — 3D Rig & Motion Specification
 
-> Source spec provided by Maxi (project owner). This is the canonical definition
-> of the kick's biomechanics and the adjustable parameters. The app's parameter
-> system (`src/kick/parameters.js`) and procedural animation
-> (`src/kick/animation.js`) implement against this document.
-
-## Rig mapping (spec joints → actual T-P bones)
-
-The spec is written in anatomical terms. Our rig (`public/assets/t-p.glb`) uses
-Mixamo-style `rig:` bone names. Mapping used by the animation code:
-
-| Spec joint            | T-P bone(s)                                              | Notes |
-|-----------------------|---------------------------------------------------------|-------|
-| Pelvis (root)         | `rig:Hips`                                               | axial Y rotation + translation |
-| Lumbar/thoracic spine | `rig:Spine`, `rig:Spine1`, `rig:Spine2`                  | lateral flexion, flexion, axial rotation (distribute across the 3) |
-| Neck / head           | `rig:Neck`, `rig:Head`                                   | flexion (look down) |
-| Shoulder L/R          | `rig:LeftArm` / `rig:RightArm`                           | upper-arm bone = glenohumeral joint (flex/abduct) |
-| (clavicle)            | `rig:LeftShoulder` / `rig:RightShoulder`                 | minor; usually left at rest |
-| Elbow L/R             | `rig:LeftForeArm` / `rig:RightForeArm`                   | flexion |
-| Hip L/R               | `rig:LeftUpLeg` / `rig:RightUpLeg`                       | flex/extend, abduct, rotate |
-| Knee L/R              | `rig:LeftLeg` / `rig:RightLeg`                           | flex/extend |
-| Ankle L/R             | `rig:LeftFoot` / `rig:RightFoot`                         | plantar/dorsiflexion |
-| Toe L/R               | `rig:LeftToeBase` / `rig:RightToeBase`                   | contact frame |
-
-**Canonical motion:** right-footed instep drive. Kicking leg = RIGHT, support
-leg = LEFT, counter arm = LEFT. Mirror for a left-footed kicker.
-
-> NOTE: bone-local rotation axes depend on how the rig was authored. The
-> animation code keeps per-bone axis/sign constants in one place so they can be
-> tuned against the visual without touching the timeline logic.
+> Canonical definition of the kick's biomechanics and the adjustable parameters.
+> Rewritten from Maxi's stage-by-stage walkthrough (the "heart of the app" pass).
+> The parameter system (`src/kick/parameters.js`), the procedural overrides
+> (`src/main.js`), and the launch model (`src/kick/animation.js`) implement
+> against this document.
+>
+> **Status legend:** ✅ implemented · 🟡 partial / first-pass · ⬜ not yet built ·
+> ❓ open question (see §Open questions).
 
 ---
 
 ## 0. Conventions
 
-- **Angle convention:** 0° = anatomical neutral standing pose; flexion /
-  extension / abduction measured as deviation from neutral.
-- **Reference line:** the **target line** runs from the ball to its destination.
-  Approach angle, foot orientation, and hip rotation are measured relative to it.
-- All ranges are **proposed first-pass values** from general instep-kick
-  biomechanics, to be validated against slow-motion footage (the forward half of
-  the Kick Fingerprinting loop).
-
-## ⚠️ List order ≠ strict timeline
-
-The 13 pedagogical steps are a learning order, not chronological. For animation:
-- **Hop** occurs at the end of the **Runup** (penultimate stride), before plant.
-- **Lock Ankle / Tilt / Swing Arm / Lock Gaze** are *sustained states*.
-- **Hip Turn → Whip → Points → Follow-Through** is one continuous chain.
-
-See Section 14 for the chronological timeline used for keyframing.
+- **Sides.** Canonical kick is **right-footed**. Kicking leg = **RIGHT**, plant /
+  support leg = **LEFT**. The **non-kicking foot IS the plant foot** — "toward the
+  non-kicking foot" and "toward the planting foot" mean the **same** direction.
+  Everything mirrors for a left-footer (`footedness`).
+- **World.** Model faces the goal along **−Z**. Player's left = **−X**, right =
+  **+X** (verified from shoulder positions). The ball sits at the origin.
+- **Bone-local axes (verified).** Legs: local **X** = sagittal swing (+ = forward
+  /flexion/plantarflex), local **Z** = lateral (ab/adduction). Hips: **Y** = yaw.
+  Spine: **X** = forward bend, **Y** = axial twist, **Z** = lateral tilt.
+  Arms: **Z** = abduction.
+- **Timeline.** Normalized clip time `0 → 1`. The anchor is **contact `c`**
+  (calibrated from the imported clip as the peak forward foot-speed, currently
+  `c ≈ 0.38`). Stage boundaries are expressed as fractions of `c`.
+- All numeric ranges are first-pass; tune against slow-motion footage.
 
 ---
 
-## 1. Runup
-| Joint / body | Motion | Proposed range |
+## 1. Stage timeline (chronological)
+
+| Stage | Window (× c) | One-line summary |
 |---|---|---|
-| Whole body | Approach angle vs target line | 30°–45° diagonal |
-| Whole body | Strides | 3–5 |
-| Spine | Forward lean | 5°–10° |
-| Hips/knees | Running gait | normal sprint |
-| Penultimate stride | Lengthened for plant | ~110–130% normal |
+| **Pre-run-up** | `0 → 0.12c` | stance / hold |
+| **Run-up** | `0.12c → 0.78c` | the strides, angled approach |
+| **Recoil** (cock-back) | `0.78c → 0.92c` | wind + draw the leg back |
+| **Hop** | end of recoil (`≈0.92c`) | small plant-hop, a few cm |
+| **Kick** (whip) | `0.92c → c` | the strike |
+| **Contact** | `c` | foot-point × ball-point (own sub-system) |
+| **Follow-up** | `c → 1` | follow-through, slide, cross-over, land |
 
-## 2. Aim Support (plant foot)
-| Joint / body | Motion | Proposed range |
-|---|---|---|
-| Support foot | Lateral offset from ball | 10–20 cm to the side |
-| Support foot | Depth vs ball | level → 10–25 cm **behind** |
-| Support foot | Toe vs target line | 0°–15° open |
-| Support (L) knee | Flexion (loaded) | 15°–25° |
-| Support (L) hip | Flexion | 10°–20° |
-
-> Foot further behind ball → more hip rotation room → more power. Level/ahead →
-> compact, low strike.
-
-## 3. Tilt
-| Joint / body | Motion | Proposed range |
-|---|---|---|
-| Spine | Lateral flexion away from kicking leg | 10°–20° |
-| Head | Counter-tilts, stays level | 0°–10° |
-
-## 4. Pre-Load (backswing)
-| Joint / body | Motion | Proposed range |
-|---|---|---|
-| Kicking (R) hip | Extension (thigh back) | 20°–30° past neutral |
-| Kicking (R) knee | Flexion (heel to glute) | 90°–110° |
-| Pelvis | Counter-rotation (windup) | up to −15° |
-
-## 5. Hip Turn
-| Joint / body | Motion | Proposed range |
-|---|---|---|
-| Pelvis | Axial rotation toward target | 30°–45° |
-| Kicking (R) hip | Begins flexion | −25° → +flexion |
-| Spine | Mild axial counter then release | ±15° |
-
-## 6. Swing Arm
-| Joint / body | Motion | Proposed range |
-|---|---|---|
-| Counter (L) shoulder | Abduction | 45°–90° |
-| Counter (L) shoulder | Extension | 10°–30° |
-| Counter (L) elbow | Flexion | 20°–60° |
-| Kicking-side (R) arm | Tucks as counterweight | shoulder ~0°–20°, back |
-
-## 7. Lock Ankle (sustained through Points)
-| Joint / body | Motion | Proposed range |
-|---|---|---|
-| Kicking (R) ankle | Plantarflexion (instep presented) | 20°–30° |
-| Kicking (R) ankle | Rigidity at contact | locked, 0° during contact |
-
-## 8. Knee Aim
-| Joint / body | Motion | Proposed range |
-|---|---|---|
-| Kicking (R) knee | Horizontal pos at contact | over / ahead of ball center |
-| Kicking (R) knee | Flexion as it passes ball | 20°–40° |
-| Kicking (R) knee | Pointing direction | at target line |
-
-> Knee over ball → low. Knee behind / leaning back → lofted.
-
-## 9. Lock Gaze (sustained)
-| Joint / body | Motion | Proposed range |
-|---|---|---|
-| Neck | Flexion (look at ball) | 15°–30° |
-| Head | No yaw through contact | ~0° |
-
-## 10. Points (contact event, 1–2 frames)
-| Parameter | Description | Example values |
-|---|---|---|
-| Foot contact zone | Where on foot | instep/laces (drive), inside (curl), outside (trivela) |
-| Ball contact point | Where on ball | center (power), below (lift), off-center (spin) |
-| Foot–ball angle | Approach to ball surface | drive ~0° square; curl 20°–40° across |
-
-## 11. Hop (during end of Runup)
-| Joint / body | Motion | Proposed range |
-|---|---|---|
-| Whole body | CoM rise (penultimate stride) | 3–8 cm |
-| Both knees | Synchronized flex→extend | rhythm beat |
-
-## 12. Whip (acceleration)
-| Joint / body | Motion | Proposed range |
-|---|---|---|
-| Kicking (R) knee | Rapid extension | 90°–110° → 10°–20° at contact |
-| Kicking (R) knee | Peak angular velocity | just before/at contact |
-| Kicking (R) hip | Continued flexion | toward 30°–45° |
-
-## 13. Follow-Through
-**Power variant**
-| Joint / body | Motion | Proposed range |
-|---|---|---|
-| Kicking (R) hip | Continued flexion (thigh rises) | 40°–60° |
-| Kicking (R) knee | Full extension then slight re-flex | →~0°, settle |
-| Whole body | Lands on kicking foot, weight fwd | CoM fwd ~20–40 cm |
-| Kicking foot | Travels past ball | finishes ahead of ball spot |
-
-**Control / Precision variant**
-| Joint / body | Motion | Proposed range |
-|---|---|---|
-| Kicking (R) knee | Extension halts near contact | ~30°–40° flexion |
-| Whole body | Stays over support foot | minimal CoM travel |
-| Foot toe direction | Points at target (steering) | aligned to target line |
+Sustained states span several stages: **Tilt**, **Lock Ankle**, **Lock Gaze**
+(see §9).
 
 ---
 
-## 14. Suggested Chronological Timeline (keyframing)
+## 2. Run-up  ✅🟡
 
-Normalized 0.0 → 1.0 where 1.0 = contact.
+| Element | Motion | Range / default | Status |
+|---|---|---|---|
+| Steps | procedural strides prepended to the clip | 1–5 (def 2) | ✅ `runupSteps` |
+| **Approach angle** | diagonal vs the target line, toward the **plant** side | 0°–90° (def **45°**) | ✅ `runupAngle` |
+| Stride length | match the imported clip's step | ~1.5 m | ✅ |
+| Gait width | feet track close to a **single line** (thighs adducted) | narrow | 🟡 `add≈9°` |
+| Spine | forward lean | 5°–10° | ✅ |
+| Facing | faces travel direction, squares to goal over last⅓ for a seamless hand-off | — | ✅ |
 
-| t | Phase | Active steps |
+> The run-up start is `steps × stride` behind the plant point, rotated by
+> `runupAngle` toward the plant side. Right-footer → approaches from the left.
+
+## 3. Aim Support (plant foot)  🟡
+
+| Element | Motion | Range / default | Status |
+|---|---|---|---|
+| Lateral offset | plant foot to the **side** of the ball | **20 cm** | ✅ (calibrated) |
+| Depth | toes level with the ball's **front edge** | toe at front edge | ✅ |
+| Depth (tunable) | support-foot depth **behind** the ball → power/loft | 0–25 cm | 🟡 `aimSupportDepth` (affects launch only) |
+| Support knee | flexion (loaded) | ~10° bent | ⬜ |
+| Support toe | points at the goal | 0°–15° open | ⬜ |
+
+## 4. Recoil — the cock-back  ✅
+
+Peaks at the top of the backswing (`≈0.92c`), released by contact.
+
+| Element | Motion | Range | Status |
+|---|---|---|---|
+| Pelvis | **winds toward the kicking foot** (pivot at the plant hip) | scales w/ recoil | ✅ |
+| Kicking femur | pulls **back** (hip extension) | = `recoil` | ✅ |
+| Kicking knee | **flexes** (cocks the lower leg) | `1.2 × recoil` | ✅ |
+
+Param: **`recoil`** 0–60° (def 30). One slider; knee & pelvis scale off the
+femoral backswing.
+
+## 5. Hop  ⬜❓
+
+A small hop, **no more than a few cm**, coinciding with the **end of recoil**.
+When the hop ends, the kick begins. *(Vertical CoM rise vs. small forward gather —
+see Open questions.)*
+
+## 6. Kick — the whip  🟡
+
+The strike, from end-of-recoil to contact. **Tilt is still active here.**
+
+| Element | Motion | Status |
 |---|---|---|
-| 0.00–0.55 | Approach | Runup (lean, gait, angle) |
-| 0.55–0.70 | Penultimate stride | Hop |
-| 0.70–0.80 | Plant | Aim Support, Tilt begins |
-| 0.78–0.88 | Windup | Pre-Load (max backswing), Lock Ankle engages |
-| 0.85–0.95 | Power transfer | Hip Turn, Swing Arm peaks |
-| 0.90–0.99 | Drive | Whip (knee extends), Knee Aim, Lock Gaze held |
-| 1.00 | Contact | Points (1–2 frames) |
-| 1.00–1.30 | Recovery | Follow-Through (+ landing) |
+| **Lock ankle** | plantarflexion held rigid (instep presented) | ✅ `lockAnkle` 0–40° |
+| **Whip** | kicking **femur drives forward** *and* **knee extends forward** simultaneously | 🟡 `whip` (knee only today; add hip drive) |
+| **Pelvis** | **un-winds** — rotates back **toward the non-kicking/plant foot** (powers the strike, carries into follow-up) | ⬜ |
+| **Torso counter-strike** | as the knee comes forward the **torso bends forward** over the ball — keeps the ball **down**, adds power | ⬜ new param |
+| **Knee plumb vs ball** | the kicking knee's vertical plumb, **20 cm behind → 10 cm ahead** of the ball (behind = lofted, ahead = low) | 🟡 `kneeAim` (re-range to −20…+10 cm) |
+| Tilt | whole-body lean still engaged | ✅ |
+
+## 7. Contact — Points  🟡❓
+
+Its own sub-system: **which part of the foot** meets **which part of the ball**.
+
+| Param | Options (first-pass) | Effect |
+|---|---|---|
+| Foot zone | instep/laces · inside · outside · (toe?) | drive / curl / trivela |
+| Ball zone | center · below-center (loft) · off-center/side (spin) | loft & spin |
+
+Maps to launch elevation / azimuth / spin in `computeLaunch`. **Proposed:** a
+contact annotation marking the exact foot-point and ball-point.
+
+## 8. Follow-up  🟡
+
+After contact you can **stop the foot at the ball (no follow-up)** or **continue**.
+With a strong follow-up:
+
+- the **plant foot leaves the ground** and **slides forward** (barely/not touching);
+- the **kicking foot crosses** the planting foot;
+- **landing** is on the **kicking foot first** (all weight on it) — with a weak
+  follow-up the **planting foot** lands first;
+- **hips rotate toward the planting foot, up to 90°**.
+
+| Param | Motion | Range | Status |
+|---|---|---|---|
+| **Follow-up (angle / strength)** | *one coupled control*: ball leaves along the follow-through line toward the non-kicking foot **and** hips rotate toward the plant foot, leg crosses over, weight transfers | 0°–90° | 🟡 (ball azimuth + leg sweep done; cross-over, weight, plant-foot lift ⬜) |
+| **Slippage (forward slide)** | plant foot slides forward during/after the strike | 0–1 m | ⬜ new param |
+
+## 9. Sustained states
+
+| State | Motion | When | Status |
+|---|---|---|---|
+| **Tilt** | whole-body **rigid lean toward the plant foot**, pivot at the plant foot | ramps end-of-run-up → peak at contact → vertical by end | ✅ `tilt` 0–30° |
+| **Lock Ankle** | plantarflexion held | windup → through contact | ✅ |
+| **Lock Gaze** | **eyes stay on the ball through contact and all the way until landing**; only after landing does the gaze rise toward the goal | run-up → landing | ⬜ |
+
+> **Gaze consequence:** because the head stays locked on the ball while the body
+> rotates toward the plant foot, the **shoulder axis keeps rotating** toward the
+> plant foot through the follow-up. This is a *result*, not a separate control.
 
 ---
 
-## 15. Parameters exposed as rig "handles" (the sliders)
+## 10. Master parameter list (the sliders)
 
-Highest-value adjustable parameters for the tuning system:
-
-- **Aim Support** — support-foot depth (behind ↔ ahead) → ball height
-- **Tilt** — lateral lean → ground clearance / lift
-- **Hip Turn** — pelvic rotation magnitude → power
-- **Knee Aim** — knee position over ball → low vs lofted
-- **Lock Ankle** — plantarflexion angle → contact surface
-- **Points** — foot zone × ball zone → spin / direction / power
-- **Whip** — knee extension velocity → power
-- **Follow-Through** — power vs control variant toggle
+| Param | Stage | Range / default | Status |
+|---|---|---|---|
+| `footedness` | all | right / left | ✅ |
+| `runupSteps` | run-up | 1–5 (2) | ✅ |
+| `runupAngle` | run-up | 0–90° (45) | ✅ |
+| `aimSupportDepth` | plant | 0–25 cm (12) | 🟡 launch-only |
+| `tilt` | sustained | 0–30° (15) | ✅ |
+| `recoil` | recoil | 0–60° (30) | ✅ |
+| `hipTurn` | recoil/kick | 0–60° (38) | ❓ likely folds into recoil + follow-up |
+| `lockAnkle` | kick | 0–40° (25) | ✅ |
+| `kneeAim` (knee plumb) | kick | **−20…+10 cm** | 🟡 re-range |
+| `torsoBend` (counter-strike) | kick | new | ⬜ |
+| `whip` (femur+knee drive) | kick | 0–1 (0.75) | 🟡 add hip drive |
+| `footZone` × `ballZone` | contact | enums | 🟡 expand |
+| `followUp` (angle/strength) | follow-up | 0–90° (0) | 🟡 |
+| `slippage` (forward slide) | follow-up | 0–1 m | ⬜ |
+| `followThrough` (power/control) | — | toggle | ❓ replace with `followUp` strength (0 = stop) |
 
 ---
 
-*All ranges are proposed first-pass values from general instep-kick
-biomechanics, to be validated and tuned against real slow-motion footage via
-pose estimation (the Kick Fingerprinting reverse pipeline).*
+## 11. Open questions
+
+1. **Hop** — vertical CoM rise (stamp), or a small *forward* gather onto the
+   plant foot? Fixed few-cm detail, or its own slider?
+2. **Hip Turn** — now that the pelvis is stage-driven (winds in recoil, un-winds
+   in the kick toward the plant foot, continues in follow-up), should the
+   standalone `hipTurn` slider be **retired** (its job split between `recoil` and
+   `followUp`), or kept as an independent "peak rotation magnitude"?
+3. **Follow-up coupling** — is it truly **one** control that sets *both* the
+   ball's azimuth *and* the body follow-through magnitude (cross-over, weight,
+   hip rotation)? Or should **ball direction** and **follow-through strength** be
+   two separate sliders that happen to share a default?
+4. **Follow-Through toggle** — replace the power/control toggle with the
+   continuous `followUp` strength (0 = stop foot at ball = control, high = power)?
+5. **Torso counter-strike** — its own slider (degrees of forward bend at
+   contact), and is it coupled to `whip`/power or independent?
+6. **Contact zones** — expand foot (laces/instep/inside/outside/toe) and ball
+   (center/under-for-loft/side-for-curl/under-for-chip)? Add the contact
+   annotation (mark foot-point & ball-point)?
+
+---
+
+*Ranges are first-pass values to be validated against real slow-motion footage
+(e.g. Caniggia vs. River, March 1992) via the planned pose-estimation pipeline.*
