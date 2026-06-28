@@ -28,6 +28,7 @@ let mocap = null, mocapModel = null, mocapAvailable = false, mocapBase = null;
 let mocapAlign = { x: 0, z: 0 };  // shift so the strike foot meets the ball
 let mocapContactT = 0.7;          // normalized clip time of ball contact
 let mocapPlayT = 0;               // wall-clock for mocap playback (incl. delay)
+let mocapBaseQuat = null;         // model's facing rotation (before tilt lean)
 let bonesRef = null, restRef = null, sourceCtrl = null;
 const sourceOptions = () => (mocapAvailable
   ? { 'Imported clip': 'mocap', 'Authored clip': 'authored', Procedural: 'procedural' }
@@ -77,6 +78,7 @@ loadCharacter(scene).then(({ model, bones, rest }) => {
   model.position.x = 0.12;
   model.position.z = 0.34;
   model.rotation.y = Math.PI; // face -Z (tune if the model faces the other way)
+  mocapBaseQuat = model.quaternion.clone();
 
   kick = new KickAnimation({ model, bones, rest });
   annotations = new Annotations(scene, bones);
@@ -245,6 +247,7 @@ function applyFrame(tt) {
       mocapBase.z - (o ? o.z : 0) + mocapAlign.z,
     );
     groundModel();
+    applyTilt(tn); // whole-body lean about the plant foot
   } else if (params.source === 'authored' && editor && editor.keys.length) {
     editor.applyAt(tn);
   } else {
@@ -272,6 +275,38 @@ function groundModel() {
     b.getWorldPosition(_wp); if (_wp.y < minY) minY = _wp.y;
   }
   if (minY !== Infinity) mocapModel.position.y -= (minY - 0.02);
+}
+
+const _smooth = (u) => { const x = Math.min(1, Math.max(0, u)); return x * x * (3 - 2 * x); };
+
+// Tilt timing envelope (0..1): ramps in from the end of the run-up to a peak at
+// contact, then eases back to vertical by the end of the follow-up.
+function tiltEnvelope(scrubN) {
+  const c = mocapContactT;
+  const r = 0.78 * c;                 // end of run-up (recoil begins)
+  if (scrubN <= r) return 0;
+  if (scrubN <= c) return _smooth((scrubN - r) / Math.max(1e-3, c - r));
+  return 1 - _smooth((scrubN - c) / Math.max(1e-3, 1 - c));
+}
+
+// Whole-body rigid lean toward the plant foot, pivoting at the plant-foot point
+// on the ground (rotation about the world forward axis). Applied after posing.
+const _tiltPivot = new THREE.Vector3();
+const _tiltQuat = new THREE.Quaternion();
+const _tiltAxis = new THREE.Vector3(0, 0, 1);
+function applyTilt(scrubN) {
+  if (mocapBaseQuat) mocapModel.quaternion.copy(mocapBaseQuat); // reset (no accumulation)
+  const deg = params.tilt * tiltEnvelope(scrubN);
+  if (deg < 0.02) return;
+  const S = params.footedness === 'right' ? 'Left' : 'Right';
+  const foot = bonesRef[`${S}ToeBase`] || bonesRef[`${S}Foot`];
+  if (!foot) return;
+  mocapModel.updateMatrixWorld(true);
+  foot.getWorldPosition(_tiltPivot); _tiltPivot.y = 0; // pivot on the pitch
+  const sign = params.footedness === 'right' ? -1 : 1;  // lean head toward plant side
+  _tiltQuat.setFromAxisAngle(_tiltAxis, sign * deg * DEG);
+  mocapModel.position.sub(_tiltPivot).applyQuaternion(_tiltQuat).add(_tiltPivot);
+  mocapModel.quaternion.premultiply(_tiltQuat);
 }
 
 // One leg of a jog cycle (phase 0..1): forward swing then planted sweep.
@@ -391,6 +426,7 @@ function animate() {
       // start, `steps` strides behind it along the approach (+Z).
       const STEP_LEN = 0.9;
       const clipStart = new THREE.Vector3(mocapBase.x + mocapAlign.x, mocapBase.y, mocapBase.z + mocapAlign.z);
+      if (mocapBaseQuat) mocapModel.quaternion.copy(mocapBaseQuat); // upright during run-up
       if (w < 0) {                               // delay: hold at run-up start
         poseJog(0);
         mocapModel.position.set(clipStart.x, clipStart.y, clipStart.z + steps * STEP_LEN);
