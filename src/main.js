@@ -14,6 +14,7 @@ import { scenarioStore, snapshot, applyScenario } from './scenarios.js';
 
 const SECONDS_FULL = 2.4; // wall-clock seconds for the whole 0..CLIP_END clip
 const GRAVITY = 9.81;
+const DEG = Math.PI / 180;
 
 // Build stamp (injected by Vite) so the live page shows which build is loaded.
 const buildEl = document.getElementById('build');
@@ -134,6 +135,7 @@ loadCharacter(scene).then(({ model, bones, rest }) => {
   buildSourceCtrl();
   gui.add(params, 'rootMotion').name('Root motion (locomotion)')
     .onChange(() => { if (!params.playing) applyFrame(params.scrub * CLIP_END); });
+  gui.add(params, 'runupSteps', 0, 5, 1).name('Run-up steps');
   gui.add(params, 'delay', 0, 3, 0.05).name('Delay before kick (s)');
   const axF = gui.addFolder('Body axes');
   axF.close();
@@ -272,6 +274,29 @@ function groundModel() {
   if (minY !== Infinity) mocapModel.position.y -= (minY - 0.02);
 }
 
+// One leg of a jog cycle (phase 0..1): forward swing then planted sweep.
+function legCycle(phase) {
+  phase -= Math.floor(phase);
+  if (phase < 0.5) { const u = phase / 0.5; return { hip: -18 + 46 * u, knee: 14 + 64 * Math.sin(Math.PI * u) }; }
+  const u = (phase - 0.5) / 0.5; return { hip: 28 - 46 * u, knee: 12 };
+}
+
+// Pose the rig in a procedural jog at the given stride phase (used for the
+// prepended run-up before an imported clip). Reuses the kick rig's rest pose.
+function poseJog(phase) {
+  kick.resetPose();
+  const mir = params.footedness === 'right' ? 1 : -1;
+  const r = legCycle(phase), l = legCycle(phase + 0.5);
+  kick.applyBone('RightUpLeg', r.hip * DEG, 0, 0); kick.applyBone('RightLeg', -r.knee * DEG, 0, 0);
+  kick.applyBone('LeftUpLeg', l.hip * DEG, 0, 0); kick.applyBone('LeftLeg', -l.knee * DEG, 0, 0);
+  kick.applyBone('RightFoot', 8 * DEG, 0, 0); kick.applyBone('LeftFoot', 8 * DEG, 0, 0);
+  // arms swing opposite the same-side leg
+  kick.applyBone('RightArm', (-r.hip * 0.5) * DEG, 0, 10 * mir * DEG);
+  kick.applyBone('LeftArm', (-l.hip * 0.5) * DEG, 0, -10 * mir * DEG);
+  kick.applyBone('RightForeArm', 0, 35 * mir * DEG, 0); kick.applyBone('LeftForeArm', 0, -35 * mir * DEG, 0);
+  for (const s of ['Spine', 'Spine1', 'Spine2']) kick.applyBone(s, 7 * DEG, 0, 0); // forward lean
+}
+
 // The 5 stages as [t0,t1] spans (normalized clip time) anchored to the
 // calibrated contact, each with its live speed multiplier.
 function mocapStages() {
@@ -349,20 +374,38 @@ function animate() {
     if (!params.playing) {
       applyFrame(params.scrub * CLIP_END);            // paused: scrub the pose
     } else if (params.source === 'mocap' && mocapAvailable) {
-      // Imported clip: time-warped playback. Each stage (pre-runup, run-up,
-      // recoil, whip, follow-up) plays at its own speed; a "delay" holds the
-      // first frame before each loop. Overall "speed" scales the whole thing.
+      // Imported clip: optional procedural run-up lead-in, then time-warped clip.
+      const rate = Math.max(0.05, params.speed);
       const segs = mocapStages();
       const warpLen = segs.reduce((a, s) => a + (s.t1 - s.t0) / s.sp, 0); // normalized
-      const rate = Math.max(0.05, params.speed);
       const clipWall = warpLen * mocap.duration / rate;
-      const period = params.delay + clipWall;
+      const steps = Math.round(params.runupSteps || 0);
+      const stepWall = 0.34 / rate;             // wall seconds per foot-fall
+      const runupWall = steps * stepWall;
+      const period = params.delay + runupWall + clipWall;
       mocapPlayT += dt;
       if (mocapPlayT >= period) { mocapPlayT -= period; resetBall(); }
-      const w = Math.max(0, mocapPlayT - params.delay) * rate / mocap.duration; // 0..warpLen
-      params.scrub = clipTimeFromWarp(w, segs);
-      applyFrame(params.scrub * CLIP_END);
-      stepBall(dt);
+      const w = mocapPlayT - params.delay;
+
+      // Clip start position (= where the run-up must hand off) and the run-up
+      // start, `steps` strides behind it along the approach (+Z).
+      const STEP_LEN = 0.9;
+      const clipStart = new THREE.Vector3(mocapBase.x + mocapAlign.x, mocapBase.y, mocapBase.z + mocapAlign.z);
+      if (w < 0) {                               // delay: hold at run-up start
+        poseJog(0);
+        mocapModel.position.set(clipStart.x, clipStart.y, clipStart.z + steps * STEP_LEN);
+        groundModel();
+      } else if (w < runupWall) {                // procedural jog in
+        const f = w / runupWall;
+        poseJog((w / stepWall) * 0.5);           // each foot-fall = half a cycle
+        mocapModel.position.set(clipStart.x, clipStart.y, clipStart.z + (1 - f) * steps * STEP_LEN);
+        groundModel();
+      } else {                                   // imported clip
+        const wc = (w - runupWall) * rate / mocap.duration;
+        params.scrub = clipTimeFromWarp(wc, segs);
+        applyFrame(params.scrub * CLIP_END);
+        stepBall(dt);
+      }
     } else {
       t += dt * params.speed * (CLIP_END / SECONDS_FULL);
       if (t >= CLIP_END) { t = 0; resetBall(); }

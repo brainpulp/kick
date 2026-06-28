@@ -53,6 +53,7 @@ export const params = {
   useClip: true, // play the authored keyframe clip (vs the procedural kick)
   source: 'procedural', // 'procedural' | 'authored' | 'mocap' (set at runtime)
   rootMotion: true, // apply an imported clip's root translation (locomotion)
+  runupSteps: 2,    // procedural jog strides prepended before an imported clip (0–5)
 
   // Body-axis annotation lines (master toggle + per-axis).
   showAxes: false,
