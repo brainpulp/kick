@@ -38,6 +38,11 @@ export const params = {
   // it). Peaks at the top of the backswing, released by contact.
   recoil: 30,
 
+  // Torso counter-strike — as the knee drives forward the trunk bends forward
+  // over the ball (deg of spine flexion). Keeps the ball down, adds power. Peaks
+  // at contact, eases through the follow-up.
+  torsoBend: 20,
+
   // §12 Whip — knee-extension drive (0..1) → strike power/velocity.
   whip: 0.75,
 
@@ -85,9 +90,10 @@ export const meta = {
   aimSupportDepth: { min: 0, max: 25, step: 1, unit: 'cm', label: 'Aim Support (depth)' },
   tilt: { min: 0, max: 30, step: 1, unit: '°', label: 'Tilt (lean)' },
   hipTurn: { min: 0, max: 60, step: 1, unit: '°', label: 'Hip Turn' },
-  kneeAim: { min: -15, max: 15, step: 1, unit: 'cm', label: 'Knee Aim (over ball)' },
+  kneeAim: { min: -20, max: 10, step: 1, unit: 'cm', label: 'Knee plumb (− behind / + ahead of ball)' },
   lockAnkle: { min: 0, max: 40, step: 1, unit: '°', label: 'Lock Ankle' },
   recoil: { min: 0, max: 60, step: 1, unit: '°', label: 'Recoil (cock-back)' },
+  torsoBend: { min: 0, max: 40, step: 1, unit: '°', label: 'Torso counter-strike' },
   whip: { min: 0, max: 1, step: 0.01, unit: '', label: 'Whip (power)' },
   followUp: { min: 0, max: 90, step: 1, unit: '°', label: 'Follow-up angle' },
 };

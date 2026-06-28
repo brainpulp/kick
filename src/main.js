@@ -240,6 +240,7 @@ function applyFrame(tt) {
     mocap.seek(tn);                       // baked clip...
     applyOverrides(bonesRef, restRef, params); // ...+ live parameter overrides
     applyRecoil(tn);                      // cock-back (pre-contact)
+    applyTorso(tn);                       // trunk counter-strike over the ball
     applyFollowUp(tn);                     // follow-through sweep (post-contact)
     // Root motion: model faces -Z (rotation.y = PI) so negate clip X/Z; align
     // shift makes the strike foot meet the ball.
@@ -369,6 +370,31 @@ function applyRecoil(scrubN) {
   add('Hips', 0, deg * 0.5 * mir, 0);     // pelvis winds toward the kicking foot
   add(`${K}UpLeg`, -deg, 0, 0);           // kicking femur pulls back (hip extension)
   add(`${K}Leg`, -deg * 1.2, 0, 0);       // knee flexes (cocks the lower leg)
+}
+
+// Torso counter-strike envelope (0..1): the trunk bends forward as the knee
+// drives in — ramps through the whip to peak at contact, then eases through the
+// follow-up (the player stays folded over the ball, recovering by the end).
+function torsoEnvelope(scrubN) {
+  const c = mocapContactT;
+  const w0 = 0.85 * c;
+  if (scrubN <= w0) return 0;
+  if (scrubN <= c) return _smooth((scrubN - w0) / Math.max(1e-3, c - w0));
+  return 1 - 0.7 * _smooth((scrubN - c) / Math.max(1e-3, 1 - c)); // settle to 0.3 then out
+}
+
+// Forward trunk flexion over the ball, distributed across the spine chain.
+const _tbQuat = new THREE.Quaternion();
+const _tbEuler = new THREE.Euler();
+function applyTorso(scrubN) {
+  const deg = (params.torsoBend || 0) * torsoEnvelope(scrubN);
+  if (deg < 0.05) return;
+  const per = deg / 3; // spread over the 3 spine joints
+  for (const s of ['Spine', 'Spine1', 'Spine2']) {
+    const b = bonesRef[s]; if (!b) continue;
+    _tbEuler.set(per * DEG, 0, 0, 'XYZ');
+    b.quaternion.multiply(_tbQuat.setFromEuler(_tbEuler));
+  }
 }
 
 // One leg of a jog cycle (phase 0..1): forward swing then planted sweep.
