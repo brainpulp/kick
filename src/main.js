@@ -150,15 +150,12 @@ loadCharacter(scene).then(({ model, bones, rest }) => {
   }
   buildSourceCtrl();
 
-  // Camera preset views (the model faces -Z, toward the goal; the ball is at origin).
+  // Camera preset views (the model faces -Z, toward the goal; the ball is at
+  // origin) — as on-screen buttons (top-left), outside the side panel.
   const setView = (px, py, pz, tx, ty, tz) => {
     camera.position.set(px, py, pz); controls.target.set(tx, ty, tz); controls.update();
   };
-  const views = gui.addFolder('Views');
-  views.add({ f: () => setView(0, 1.5, -5.5, 0, 0.9, 0) }, 'f').name('Front');   // from the goal, facing the player
-  views.add({ f: () => setView(5.5, 1.5, 0, 0, 0.9, 0) }, 'f').name('Side');     // kicking-leg side
-  views.add({ f: () => setView(0, 9, 0.01, 0, 0, 0) }, 'f').name('Top');         // straight down
-  views.add({ f: () => setView(3.6, 1.8, 4.2, 0, 0.9, -0.3) }, 'f').name('Default (3/4)');
+  buildViewButtons(setView);
 
   gui.add(params, 'rootMotion').name('Root motion (locomotion)')
     .onChange(() => { if (!params.playing) applyFrame(params.scrub * CLIP_END); });
@@ -167,13 +164,10 @@ loadCharacter(scene).then(({ model, bones, rest }) => {
     onScrub: (f) => { params.playing = false; params.scrub = f; applyFrame(f * CLIP_END); },
     getScrub: () => params.scrub,
   });
-  envtl.setVisible(false);
-  // Showing the full-width timing editor hides the keyframe-editor bar (its own
-  // ruler scrubs), so there's a single playhead.
-  gui.add({ timing: false }, 'timing').name('⏱ Timing editor').onChange((v) => {
-    envtl.setVisible(v);
-    const kf = document.getElementById('timeline'); if (kf) kf.style.display = v ? 'none' : '';
-  });
+  // Single consolidated timeline: the dopesheet is shown by default and the old
+  // keyframe-editor bar stays hidden (authoring uses the editor directly).
+  envtl.setVisible(true);
+  gui.add({ timing: true }, 'timing').name('⏱ Timing editor').onChange((v) => envtl.setVisible(v));
   gui.add(params, 'delay', 0, 3, 0.05).name('Delay before kick (s)');
   const axF = gui.addFolder('Body axes');
   axF.close();
@@ -209,6 +203,8 @@ loadCharacter(scene).then(({ model, bones, rest }) => {
     onNext: () => jumpToKey(Math.min(editor.keys.length - 1, editor.activeIndex + 1)),
     onPlay: () => { params.playing = !params.playing; if (params.playing) { t = params.scrub * CLIP_END; resetBall(); } },
   });
+  // Consolidated into the dopesheet timeline; keep the keyframe bar hidden.
+  const kfBar = document.getElementById('timeline'); if (kfBar) kfBar.style.display = 'none';
 
   buildEditorGUI(gui, editor, {
     kick, params, gizmo,
@@ -284,6 +280,28 @@ function paramMoment(key) {
     case 'runupAngle': case 'runupSteps': return Math.min(0.25, c * 0.5); // mid run-up
     default: return null; // footedness etc. — don't move the playhead
   }
+}
+
+// On-screen camera-view buttons (outside the side panel), top-left under the title.
+function buildViewButtons(setView) {
+  const css = `#views{position:fixed;left:12px;top:54px;display:flex;gap:6px;z-index:25}
+    #views button{font:600 11px system-ui,sans-serif;color:#cfe;background:rgba(18,22,20,.8);
+      border:1px solid #2c3a32;border-radius:6px;padding:5px 9px;cursor:pointer}
+    #views button:hover{background:rgba(40,60,48,.95)}`;
+  const st = document.createElement('style'); st.textContent = css; document.head.appendChild(st);
+  const wrap = document.createElement('div'); wrap.id = 'views';
+  const defs = [
+    ['Front', [0, 1.5, -5.5, 0, 0.9, 0]],
+    ['Side', [5.5, 1.5, 0, 0, 0.9, 0]],
+    ['Top', [0, 9, 0.01, 0, 0, 0]],
+    ['3/4', [3.6, 1.8, 4.2, 0, 0.9, -0.3]],
+  ];
+  for (const [name, v] of defs) {
+    const btn = document.createElement('button'); btn.textContent = name;
+    btn.addEventListener('click', () => setView(...v));
+    wrap.appendChild(btn);
+  }
+  document.body.appendChild(wrap);
 }
 
 function applyFrame(tt) {
