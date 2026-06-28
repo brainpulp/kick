@@ -76,7 +76,9 @@ export async function loadExternalClip(url, bones, opts) {
 export class MocapPlayer {
   constructor(model) {
     this.model = model; this.mixer = null; this.action = null; this.duration = 0;
-    this.rootInterp = null; this.root0 = null; this.rootScale = 0.01; // FBX cm -> m
+    // Root travel scale. Tuned so the planted foot stays put (measured: the body
+    // was over-travelling ~12%, dragging the stance foot — the run-up "skate").
+    this.rootInterp = null; this.root0 = null; this.rootScale = 0.0088;
   }
   setClip(clip, rootTrack, rootScale) {
     if (this.action) this.action.stop();

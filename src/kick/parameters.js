@@ -61,6 +61,10 @@ export const params = {
   // transfers onto the kicking foot. Acts from contact onward.
   followStrength: 0,
 
+  // Slippage — the plant foot leaves the ground and slides forward through the
+  // follow-up (metres). Separate from follow-up strength.
+  slippage: 0,
+
   // playback
   playing: true,
   speed: 1.0,   // overall playback rate ("fasten"): >1 faster; 1 = natural
@@ -104,4 +108,5 @@ export const meta = {
   whip: { min: 0, max: 1, step: 0.01, unit: '', label: 'Whip (power)' },
   followDir: { min: 0, max: 90, step: 1, unit: '°', label: 'Follow-up direction (ball)' },
   followStrength: { min: 0, max: 90, step: 1, unit: '°', label: 'Follow-up strength (body)' },
+  slippage: { min: 0, max: 1, step: 0.05, unit: 'm', label: 'Slippage (plant slide fwd)' },
 };

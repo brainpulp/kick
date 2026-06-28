@@ -105,20 +105,18 @@ export class Annotations {
     const knee = wp(`${K}Leg`);
     setLine(this.axes.knee, on && params.axKnee && knee, knee, new THREE.Vector3(0, -1, 0), knee ? knee.y : 0, false);
 
-    // Gaze — from the skull (between the eyes) straight to the ball: the player
-    // keeps eyes locked on the ball through the strike. Start a little forward of
-    // the Head joint so the line departs from the face, and run it to the ball.
+    // Gaze — from between the eyes straight to the ball. The Head joint sits up
+    // inside the skull, so drop to eye level (down along the head's up axis) and
+    // push forward onto the face, then run the line to the ball.
     const head = wp('Head'); const neck = wp('Neck');
     let eye = null, gazeDir = null, gazeLen = 0;
     if (head) {
-      const fwd = (neck ? head.clone().sub(neck).normalize() : new THREE.Vector3(0, 1, 0));
-      // bias the start toward the ball so it reads as leaving the eyes
-      const toBall = BALL_POINT.clone().sub(head);
-      eye = head.clone().addScaledVector(toBall.clone().normalize(), 0.08);
+      const up = (neck ? head.clone().sub(neck).normalize() : new THREE.Vector3(0, 1, 0));
+      const faceFwd = BALL_POINT.clone().sub(head).setY(0).normalize(); // horizontal toward ball
+      eye = head.clone().addScaledVector(up, -0.07).addScaledVector(faceFwd, 0.09); // down to eyes, out to face
       gazeDir = BALL_POINT.clone().sub(eye);
       gazeLen = gazeDir.length();
       gazeDir.normalize();
-      void fwd;
     }
     setLine(this.axes.gaze, on && params.axGaze && eye && gazeDir, eye, gazeDir, gazeLen, false);
   }

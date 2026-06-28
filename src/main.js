@@ -130,6 +130,15 @@ loadCharacter(scene).then(({ model, bones, rest }) => {
   const gui = createPanel({
     onChange: () => { if (!params.playing) applyFrame(params.scrub * CLIP_END); },
     onReplay: () => { t = 0; mocapPlayT = 0; resetBall(); params.playing = true; },
+    // Editing a parameter pauses and jumps to the frame where that parameter
+    // acts, so you see exactly the position you're editing.
+    onParam: (key) => {
+      const tt = paramMoment(key);
+      if (tt == null) { if (!params.playing) applyFrame(params.scrub * CLIP_END); return; }
+      params.playing = false;
+      params.scrub = tt;
+      applyFrame(tt * CLIP_END);
+    },
   });
   function buildSourceCtrl() {
     if (sourceCtrl) sourceCtrl.destroy();
@@ -250,6 +259,25 @@ loadCharacter(scene).then(({ model, bones, rest }) => {
   document.getElementById('loading').style.opacity = '0';
 });
 
+// The clip-time (0..1) where a given rig handle has its main visible effect, so
+// editing it jumps the scrub there. null = leave the scrub where it is.
+function paramMoment(key) {
+  const c = mocapContactT;
+  const mid = Math.min(0.99, (c + 1) / 2); // mid follow-through
+  switch (key) {
+    case 'recoil': return timings.recoil.peak;
+    case 'whip': return timings.whip.peak;
+    case 'torsoBend': return timings.torso.peak;
+    case 'tilt': return timings.tilt.peak;
+    case 'armSwing': return timings.arm.peak;
+    case 'hop': return timings.hop.peak;
+    case 'followDir': case 'followStrength': case 'slippage': return mid;
+    case 'lockAnkle': case 'kneeAim': case 'hipTurn': case 'footZone': case 'ballZone': return c;
+    case 'aimSupportDepth': return Math.max(0, c * 0.85); // around the plant
+    default: return null; // footedness etc. — don't move the playhead
+  }
+}
+
 function applyFrame(tt) {
   const tn = Math.min(Math.max(tt / CLIP_END, 0), 1);
   // While actively authoring, the editor always drives the rig.
@@ -277,6 +305,9 @@ function applyFrame(tt) {
     // contact (so it never shifts the strike). Applied last so it isn't grounded.
     const he = env(tn, timings.hop);
     if (he > 0.001) { mocapModel.position.z -= he * 0.05; mocapModel.position.y += he * 0.025; }
+    // Slippage: the plant foot slides forward through the follow-up.
+    const sl = (params.slippage || 0) * followEnvelope(tn);
+    if (sl > 0.001) mocapModel.position.z -= sl;
   } else if (params.source === 'authored' && editor && editor.keys.length) {
     editor.applyAt(tn);
   } else {
