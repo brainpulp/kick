@@ -62,7 +62,9 @@ export class KickAnimation {
 
     let elevation = 12 - p.kneeAim * 0.9 + p.tilt * 0.25; // deg
     if (p.ballZone === 'below-center') elevation += 14;
-    if (p.aimSupportDepth > 12) elevation += (p.aimSupportDepth - 12) * 0.4;
+    // Aim Support depth (plant foot behind the ball): more depth → more hip room
+    // → more loft. Default 12 cm = neutral; affects loft across the whole range.
+    elevation += (p.aimSupportDepth - 12) * 0.8;
     elevation = clamp(elevation, 2, 48);
 
     // Curl: inside foot curls one way, outside the other; mirror for left foot.
