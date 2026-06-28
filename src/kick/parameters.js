@@ -38,6 +38,12 @@ export const params = {
   // §13 Follow-Through — power vs control variant.
   followThrough: 'power',
 
+  // Follow-up angle — direction of the follow-through relative to the ball's
+  // straight-on line (deg). 0 = straight on (ball continues down the goal line);
+  // up to 90° toward the NON-kicking foot. Acts from contact through follow-up:
+  // sets the ball's launch azimuth and sweeps the kicking leg/hips that way.
+  followUp: 0,
+
   // playback
   playing: true,
   speed: 1.0,   // overall playback rate ("fasten"): >1 faster; 1 = natural
@@ -75,4 +81,5 @@ export const meta = {
   kneeAim: { min: -15, max: 15, step: 1, unit: 'cm', label: 'Knee Aim (over ball)' },
   lockAnkle: { min: 0, max: 40, step: 1, unit: '°', label: 'Lock Ankle' },
   whip: { min: 0, max: 1, step: 0.01, unit: '', label: 'Whip (power)' },
+  followUp: { min: 0, max: 90, step: 1, unit: '°', label: 'Follow-up angle' },
 };

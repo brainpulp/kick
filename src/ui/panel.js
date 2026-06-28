@@ -27,6 +27,7 @@ export function createPanel({ onChange, onReplay }) {
   slider('kneeAim');
   slider('lockAnkle');
   slider('whip');
+  slider('followUp');
   withReset(handles.add(params, 'footZone', FOOT_ZONES).name('Points: foot zone'), 'footZone');
   withReset(handles.add(params, 'ballZone', BALL_ZONES).name('Points: ball zone'), 'ballZone');
   withReset(handles.add(params, 'followThrough', FOLLOW_VARIANTS).name('Follow-Through'), 'followThrough');
@@ -35,7 +36,7 @@ export function createPanel({ onChange, onReplay }) {
   // Reset every rig handle at once.
   handles.add({
     resetAll: () => {
-      for (const k of ['aimSupportDepth', 'tilt', 'hipTurn', 'kneeAim', 'lockAnkle', 'whip', 'footZone', 'ballZone', 'followThrough', 'footedness']) {
+      for (const k of ['aimSupportDepth', 'tilt', 'hipTurn', 'kneeAim', 'lockAnkle', 'whip', 'followUp', 'footZone', 'ballZone', 'followThrough', 'footedness']) {
         params[k] = DEFAULTS[k];
       }
       gui.controllersRecursive().forEach((c) => c.updateDisplay());
