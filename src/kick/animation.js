@@ -120,7 +120,7 @@ export class KickAnimation {
     const runBob = Math.abs(Math.sin((t / 0.55) * Math.PI * 3)) * 0.02 * (1 - runFade);
 
     // ---- kicking leg: cock back/out -> whip through (knee over ball) ----
-    const hipFollow = p.followThrough === 'power' ? 72 : 50;
+    const hipFollow = 50 + 22 * (p.followStrength || 0) / 90; // control → power
     const kickHip = lerp(runK.hip, sample([
       [0, 2], [0.62, -6], [0.74, -18 * backDepth], [0.88, -44 * backDepth],
       [0.96, 4], [1.0, 26], [1.12, hipFollow], [1.25, 56], [1.45, 40],
