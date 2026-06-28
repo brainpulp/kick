@@ -6,8 +6,10 @@ import { KickAnimation, CONTACT_T, CLIP_END } from './kick/animation.js';
 import { createPanel } from './ui/panel.js';
 import { PoseEditor, buildEditorGUI, attachGizmo, KEY_DEFS } from './ui/editor.js';
 import { createTimeline } from './ui/timeline.js';
+import { createEnvTimeline } from './ui/envtimeline.js';
 import { Annotations } from './ui/annotations.js';
 import { params } from './kick/parameters.js';
+import { timings, env } from './kick/timing.js';
 import { BONES } from './character.js';
 import { loadExternalClip, retargetClip, MocapPlayer, applyOverrides } from './kick/mocap.js';
 import { scenarioStore, snapshot, applyScenario } from './scenarios.js';
@@ -23,7 +25,7 @@ if (buildEl) buildEl.textContent = `build ${__BUILD__}`;
 const { renderer, labelRenderer, scene, camera, controls } = createScene();
 const { ball } = createField(scene);
 
-let kick = null, annotations = null, editor = null, gizmo = null, timeline = null;
+let kick = null, annotations = null, editor = null, gizmo = null, timeline = null, envtl = null;
 let mocap = null, mocapModel = null, mocapAvailable = false, mocapBase = null;
 let mocapAlign = { x: 0, z: 0 };  // shift so the strike foot meets the ball
 let mocapContactT = 0.7;          // normalized clip time of ball contact
@@ -137,6 +139,12 @@ loadCharacter(scene).then(({ model, bones, rest }) => {
   buildSourceCtrl();
   gui.add(params, 'rootMotion').name('Root motion (locomotion)')
     .onChange(() => { if (!params.playing) applyFrame(params.scrub * CLIP_END); });
+  envtl = createEnvTimeline({
+    onChange: () => { if (!params.playing) applyFrame(params.scrub * CLIP_END); },
+    getScrub: () => params.scrub,
+  });
+  envtl.setVisible(false);
+  gui.add({ timing: false }, 'timing').name('⏱ Timing editor').onChange((v) => envtl.setVisible(v));
   gui.add(params, 'runupSteps', 0, 5, 1).name('Run-up steps');
   gui.add(params, 'runupAngle', 0, 90, 1).name('Run-up angle °');
   gui.add(params, 'delay', 0, 3, 0.05).name('Delay before kick (s)');
@@ -253,6 +261,10 @@ function applyFrame(tt) {
     );
     groundModel();
     applyTilt(tn); // whole-body lean about the plant foot
+    // Hop: a small forward skip onto the plant foot during the recoil, gone by
+    // contact (so it never shifts the strike). Applied last so it isn't grounded.
+    const he = env(tn, timings.hop);
+    if (he > 0.001) { mocapModel.position.z -= he * 0.05; mocapModel.position.y += he * 0.025; }
   } else if (params.source === 'authored' && editor && editor.keys.length) {
     editor.applyAt(tn);
   } else {
@@ -284,15 +296,8 @@ function groundModel() {
 
 const _smooth = (u) => { const x = Math.min(1, Math.max(0, u)); return x * x * (3 - 2 * x); };
 
-// Tilt timing envelope (0..1): ramps in from the end of the run-up to a peak at
-// contact, then eases back to vertical by the end of the follow-up.
-function tiltEnvelope(scrubN) {
-  const c = mocapContactT;
-  const r = 0.78 * c;                 // end of run-up (recoil begins)
-  if (scrubN <= r) return 0;
-  if (scrubN <= c) return _smooth((scrubN - r) / Math.max(1e-3, c - r));
-  return 1 - _smooth((scrubN - c) / Math.max(1e-3, 1 - c));
-}
+// Timing envelopes now live in kick/timing.js (editable from the dopesheet).
+function tiltEnvelope(scrubN) { return env(scrubN, timings.tilt); }
 
 // Whole-body rigid lean toward the plant foot, pivoting at the plant-foot point
 // on the ground (rotation about the world forward axis). Applied after posing.
@@ -314,13 +319,7 @@ function applyTilt(scrubN) {
   mocapModel.quaternion.premultiply(_tiltQuat);
 }
 
-// Follow-up timing envelope (0..1): zero until contact, then ramps to full by
-// the end of the follow-up. The follow-through is a post-contact action.
-function followEnvelope(scrubN) {
-  const c = mocapContactT;
-  if (scrubN <= c) return 0;
-  return _smooth((scrubN - c) / Math.max(1e-3, 1 - c));
-}
+function followEnvelope(scrubN) { return env(scrubN, timings.follow); }
 
 // Body expression of the follow-up angle: after contact the hips keep turning
 // and the kicking leg sweeps across toward the non-kicking foot, in the same
@@ -344,13 +343,7 @@ function applyFollowUp(scrubN) {
 // Recoil timing envelope (0..1): the cock-back winds up through the recoil stage
 // (0.78c→0.92c), peaks at the top of the backswing, then releases by contact as
 // the whip fires. Zero everywhere else.
-function recoilEnvelope(scrubN) {
-  const c = mocapContactT;
-  const r0 = 0.78 * c, rp = 0.92 * c;
-  if (scrubN <= r0 || scrubN >= c) return 0;
-  if (scrubN <= rp) return _smooth((scrubN - r0) / Math.max(1e-3, rp - r0));
-  return 1 - _smooth((scrubN - rp) / Math.max(1e-3, c - rp));
-}
+function recoilEnvelope(scrubN) { return env(scrubN, timings.recoil); }
 
 // The cock-back, layered on the baked pose during the recoil stage:
 //  1. the pelvis winds toward the kicking foot (rotating about the plant hip);
@@ -376,13 +369,7 @@ function applyRecoil(scrubN) {
 // Torso counter-strike envelope (0..1): the trunk bends forward as the knee
 // drives in — ramps through the whip to peak at contact, then eases through the
 // follow-up (the player stays folded over the ball, recovering by the end).
-function torsoEnvelope(scrubN) {
-  const c = mocapContactT;
-  const w0 = 0.85 * c;
-  if (scrubN <= w0) return 0;
-  if (scrubN <= c) return _smooth((scrubN - w0) / Math.max(1e-3, c - w0));
-  return 1 - 0.7 * _smooth((scrubN - c) / Math.max(1e-3, 1 - c)); // settle to 0.3 then out
-}
+function torsoEnvelope(scrubN) { return env(scrubN, timings.torso); }
 
 // Forward trunk flexion over the ball, distributed across the spine chain.
 const _tbQuat = new THREE.Quaternion();
@@ -406,8 +393,7 @@ const _armEuler = new THREE.Euler();
 function applyArms(scrubN) {
   const amt = params.armSwing || 0;
   if (amt < 0.01) return;
-  const c = mocapContactT;
-  const p = _smooth((scrubN - 0.6 * c) / Math.max(1e-3, 1 - 0.6 * c)); // 0 early → 1 end
+  const p = env(scrubN, timings.arm); // 0 early → 1 end
   const S = params.footedness === 'right' ? 'Left' : 'Right'; // arm opposite the kicking leg
   const sgn = S === 'Left' ? -1 : 1;                          // abduction sign for that side
   const arm = bonesRef[`${S}Arm`]; const fore = bonesRef[`${S}ForeArm`];
@@ -559,6 +545,7 @@ function animate() {
 
   if (gizmo) gizmo.update();
   if (timeline) timeline.update(params.scrub);
+  if (envtl) envtl.update();
   controls.update();
   renderer.render(scene, camera);
   labelRenderer.render(scene, camera);

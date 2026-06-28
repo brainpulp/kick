@@ -1,5 +1,5 @@
 import GUI from 'lil-gui';
-import { params, meta, DEFAULTS, FOOT_ZONES, BALL_ZONES, FOLLOW_VARIANTS, FOOTEDNESS } from '../kick/parameters.js';
+import { params, meta, DEFAULTS, FOOT_ZONES, BALL_ZONES, FOOTEDNESS } from '../kick/parameters.js';
 
 // Build the slider/dropdown panel. `onChange` fires whenever a kick parameter
 // changes so the caller can replay/refresh. `onReplay` is the Replay button.
@@ -34,13 +34,12 @@ export function createPanel({ onChange, onReplay }) {
   slider('followStrength');
   withReset(handles.add(params, 'footZone', FOOT_ZONES).name('Points: foot zone'), 'footZone');
   withReset(handles.add(params, 'ballZone', BALL_ZONES).name('Points: ball zone'), 'ballZone');
-  withReset(handles.add(params, 'followThrough', FOLLOW_VARIANTS).name('Follow-Through'), 'followThrough');
   withReset(handles.add(params, 'footedness', FOOTEDNESS).name('Footedness'), 'footedness');
 
   // Reset every rig handle at once.
   handles.add({
     resetAll: () => {
-      for (const k of ['aimSupportDepth', 'tilt', 'hipTurn', 'kneeAim', 'lockAnkle', 'recoil', 'torsoBend', 'armSwing', 'whip', 'followDir', 'followStrength', 'footZone', 'ballZone', 'followThrough', 'footedness']) {
+      for (const k of ['aimSupportDepth', 'tilt', 'hipTurn', 'kneeAim', 'lockAnkle', 'recoil', 'torsoBend', 'armSwing', 'whip', 'followDir', 'followStrength', 'footZone', 'ballZone', 'footedness']) {
         params[k] = DEFAULTS[k];
       }
       gui.controllersRecursive().forEach((c) => c.updateDisplay());

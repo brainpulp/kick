@@ -4,7 +4,6 @@
 
 export const FOOT_ZONES = ['instep/laces', 'inside', 'outside'];
 export const BALL_ZONES = ['center', 'below-center', 'off-center'];
-export const FOLLOW_VARIANTS = ['power', 'control'];
 export const FOOTEDNESS = ['right', 'left'];
 
 // Live values the rest of the app reads/writes (bound to the GUI).
@@ -50,9 +49,6 @@ export const params = {
 
   // §12 Whip — knee-extension drive (0..1) → strike power/velocity.
   whip: 0.75,
-
-  // §13 Follow-Through — power vs control variant.
-  followThrough: 'power',
 
   // Follow-up DIRECTION — where the ball goes (deg from straight-on toward the
   // NON-kicking foot). 0 = straight down the goal line; 90 = fully sideways. Sets
