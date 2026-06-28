@@ -115,10 +115,8 @@ export function applyOverrides(bones, rest, params) {
   };
   // Hip turn (Hips yaw) relative to the 38° default.
   add('Hips', 0, (params.hipTurn - 38) * 0.4 * mir, 0);
-  // Lateral tilt (spine Z) relative to 15°, split over the three spine segments.
-  const dTilt = (params.tilt - 15) / 3;
-  for (const s of ['Spine', 'Spine1', 'Spine2']) add(s, 0, 0, -dTilt * mir);
   // Lock-ankle (foot plantarflexion, X) relative to 25°.
   const K = params.footedness === 'right' ? 'Right' : 'Left';
   add(`${K}Foot`, (params.lockAnkle - 25) * 0.6, 0, 0);
+  // (Tilt is a whole-body rigid lean about the plant foot — handled in main.)
 }
