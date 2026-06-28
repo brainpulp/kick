@@ -303,7 +303,7 @@ function applyTilt(scrubN) {
   if (!foot) return;
   mocapModel.updateMatrixWorld(true);
   foot.getWorldPosition(_tiltPivot); _tiltPivot.y = 0; // pivot on the pitch
-  const sign = params.footedness === 'right' ? -1 : 1;  // lean head toward plant side
+  const sign = params.footedness === 'right' ? 1 : -1;  // lean head toward plant (support) side
   _tiltQuat.setFromAxisAngle(_tiltAxis, sign * deg * DEG);
   mocapModel.position.sub(_tiltPivot).applyQuaternion(_tiltQuat).add(_tiltPivot);
   mocapModel.quaternion.premultiply(_tiltQuat);
