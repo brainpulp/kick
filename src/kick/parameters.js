@@ -32,6 +32,12 @@ export const params = {
   footZone: 'instep/laces',
   ballZone: 'center',
 
+  // Recoil — the cock-back just before the strike. Pelvis winds toward the
+  // kicking foot (rotating about the plant hip) and the kicking femur pulls back
+  // with the knee flexing. Degrees of femoral backswing (knee + pelvis scale off
+  // it). Peaks at the top of the backswing, released by contact.
+  recoil: 30,
+
   // §12 Whip — knee-extension drive (0..1) → strike power/velocity.
   whip: 0.75,
 
@@ -60,6 +66,7 @@ export const params = {
   source: 'procedural', // 'procedural' | 'authored' | 'mocap' (set at runtime)
   rootMotion: true, // apply an imported clip's root translation (locomotion)
   runupSteps: 2,    // procedural jog strides prepended before an imported clip (0–5)
+  runupAngle: 45,   // approach angle of the run-up (deg from straight-on, toward plant side)
 
   // Body-axis annotation lines (master toggle + per-axis).
   showAxes: false,
@@ -80,6 +87,7 @@ export const meta = {
   hipTurn: { min: 0, max: 60, step: 1, unit: '°', label: 'Hip Turn' },
   kneeAim: { min: -15, max: 15, step: 1, unit: 'cm', label: 'Knee Aim (over ball)' },
   lockAnkle: { min: 0, max: 40, step: 1, unit: '°', label: 'Lock Ankle' },
+  recoil: { min: 0, max: 60, step: 1, unit: '°', label: 'Recoil (cock-back)' },
   whip: { min: 0, max: 1, step: 0.01, unit: '', label: 'Whip (power)' },
   followUp: { min: 0, max: 90, step: 1, unit: '°', label: 'Follow-up angle' },
 };
