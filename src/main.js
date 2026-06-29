@@ -29,6 +29,7 @@ const { ball } = createField(scene);
 let kick = null, annotations = null, editor = null, gizmo = null, timeline = null, envtl = null;
 let mocap = null, mocapModel = null, mocapAvailable = false, mocapBase = null;
 let mocapAlign = { x: 0, z: 0 };  // shift so the strike foot meets the ball
+let mocapPlantLock = { x: 0, z: 0 }; // plant-foot world spot at contact (slippage lock)
 let mocapContactT = 0.7;          // normalized clip time of ball contact
 let mocapPlayT = 0;               // wall-clock for mocap playback (incl. delay)
 let mocapBaseQuat = null;         // model's facing rotation (before tilt lean)
@@ -41,6 +42,33 @@ let launched = false;      // has the ball been struck this cycle
 const ballVel = new THREE.Vector3();
 let ballSpin = 0;
 const ballHome = ball.position.clone();
+
+// Predicted ball-flight line: simulates the launch (speed/elevation/azimuth/spin
+// from computeLaunch) so editing aim params — follow-up direction, loft, spin —
+// updates the path live, even while paused. Shown with the body axes.
+const TRAJ_N = 64;
+const trajGeom = new THREE.BufferGeometry();
+trajGeom.setAttribute('position', new THREE.BufferAttribute(new Float32Array(TRAJ_N * 3), 3));
+const trajLine = new THREE.Line(trajGeom, new THREE.LineBasicMaterial({ color: 0xffd23f, transparent: true, opacity: 0.85 }));
+trajLine.frustumCulled = false;
+scene.add(trajLine);
+function updateTrajectory() {
+  if (!kick) return;
+  trajLine.visible = !!params.showAxes;
+  if (!trajLine.visible) return;
+  const L = kick.computeLaunch(params);
+  const elev = L.elevation * DEG, az = L.azimuth * DEG, horiz = L.speed * Math.cos(elev);
+  let vx = horiz * Math.sin(az), vy = L.speed * Math.sin(elev), vz = -horiz * Math.cos(az);
+  let px = ballHome.x, py = ballHome.y, pz = ballHome.z;
+  const pos = trajGeom.attributes.position; const dt = 0.035; let n = 0;
+  for (let i = 0; i < TRAJ_N; i++) {
+    pos.setXYZ(i, px, py, pz); n = i + 1;
+    vy -= GRAVITY * dt; vx += L.spin * 3.0 * dt; px += vx * dt; py += vy * dt; pz += vz * dt;
+    if (py <= BALL_RADIUS) { pos.setXYZ(n, px, BALL_RADIUS, pz); n += 1; break; }
+  }
+  pos.needsUpdate = true;
+  trajGeom.setDrawRange(0, n);
+}
 
 function resetBall() {
   ball.position.copy(ballHome);
@@ -332,10 +360,8 @@ function applyFrame(tt) {
     // contact (so it never shifts the strike). Applied last so it isn't grounded.
     const he = env(tn, timings.hop);
     if (he > 0.001) { mocapModel.position.z -= he * 0.05; mocapModel.position.y += he * 0.025; }
-    // Slippage: the plant foot slides forward through the follow-up.
-    const sl = (params.slippage || 0) * followEnvelope(tn);
-    if (sl > 0.001) mocapModel.position.z -= sl;
     applyRunupAngle(tn); // angle the approach (rotate the run about the ball)
+    applySlippage(tn);   // lock/scale the plant-foot forward slide (0 = no slide)
   } else if (params.source === 'authored' && editor && editor.keys.length) {
     editor.applyAt(tn);
   } else {
@@ -388,6 +414,33 @@ function applyTilt(scrubN) {
   _tiltQuat.setFromAxisAngle(_tiltAxis, sign * deg * DEG);
   mocapModel.position.sub(_tiltPivot).applyQuaternion(_tiltQuat).add(_tiltPivot);
   mocapModel.quaternion.premultiply(_tiltQuat);
+}
+
+// Slippage: control the plant foot's forward slide during the follow-up. The
+// baked clip slides the planted foot ~0.9 m; we cancel that (foot-lock) and let
+// `slippage` (metres) dictate the actual slide. 0 = foot stays put; higher slides
+// forward. Translates the model to hold/advance the plant foot's world spot while
+// it's grounded, fading out as the foot lifts.
+const _slPlant = new THREE.Vector3();
+function slipWindow(tn) {
+  const c = mocapContactT;
+  if (tn < c || tn > 0.90) return 0;
+  if (tn < c + 0.02) return _smooth((tn - c) / 0.02); // ease in from contact
+  if (tn > 0.82) return 1 - _smooth((tn - 0.82) / 0.08); // fade out as the foot lifts
+  return 1;
+}
+function applySlippage(tn) {
+  const w = slipWindow(tn);
+  if (w < 0.001) return;
+  const S = params.footedness === 'right' ? 'Left' : 'Right'; // plant foot
+  const plant = bonesRef[`${S}ToeBase`] || bonesRef[`${S}Foot`]; if (!plant) return;
+  mocapModel.updateMatrixWorld(true);
+  plant.getWorldPosition(_slPlant);
+  const slide = (params.slippage || 0) * followEnvelope(tn); // desired forward slide (m, toward -Z)
+  const desX = mocapPlantLock.x;
+  const desZ = mocapPlantLock.z - slide;
+  mocapModel.position.x += (desX - _slPlant.x) * w;
+  mocapModel.position.z += (desZ - _slPlant.z) * w;
 }
 
 // Plant (support) foot placement: nudge the support foot to a different stance
@@ -633,8 +686,17 @@ function calibrateMocap() {
   // realistic plant-to-ball offset that comes straight from the mocap.
   const o = mocap.rootOffset(mocapContactT) || { x: 0, z: 0 };
   mocapAlign = { x: o.x - fl[ci].x, z: o.z - fl[ci].z };
+  // Plant (support) foot world position at contact, in the RUNTIME frame — the
+  // "locked" spot the foot should hold during the follow-up (for slippage=0).
+  const S = K === 'Right' ? 'Left' : 'Right';
+  const plant = bonesRef[`${S}ToeBase`] || bonesRef[`${S}Foot`];
+  mocap.seek(mocapContactT);
+  mocapModel.position.set(mocapBase.x - o.x + mocapAlign.x, mocapBase.y, mocapBase.z - o.z + mocapAlign.z);
+  mocapModel.updateMatrixWorld(true);
+  const pl = plant ? plant.getWorldPosition(new THREE.Vector3()) : new THREE.Vector3();
+  mocapPlantLock = { x: pl.x, z: pl.z };
   // eslint-disable-next-line no-console
-  console.log(`[mocap] contactT=${mocapContactT.toFixed(3)} align=(${mocapAlign.x.toFixed(2)},${mocapAlign.z.toFixed(2)})`);
+  console.log(`[mocap] contactT=${mocapContactT.toFixed(3)} align=(${mocapAlign.x.toFixed(2)},${mocapAlign.z.toFixed(2)}) plantLock=(${mocapPlantLock.x.toFixed(2)},${mocapPlantLock.z.toFixed(2)})`);
 }
 
 const clock = new THREE.Clock();
@@ -679,6 +741,7 @@ function animate() {
   if (gizmo) gizmo.update();
   if (timeline) timeline.update(params.scrub);
   if (envtl) envtl.update();
+  updateTrajectory();
   controls.update();
   renderer.render(scene, camera);
   labelRenderer.render(scene, camera);
