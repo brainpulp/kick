@@ -9,7 +9,7 @@ export const timings = {
   whip:   { start: 0.34, peak: 0.39, end: 0.46, label: 'Whip' },
   torso:  { start: 0.32, peak: 0.38, end: 1.00, label: 'Torso' },
   tilt:   { start: 0.30, peak: 0.38, end: 1.00, label: 'Tilt' },
-  arm:    { start: 0.36, peak: 0.52, end: 0.52, label: 'Counter arm' }, // swings back from end of recoil
+  arm:    { start: 0.22, peak: 0.36, end: 0.36, label: 'Counter arm' }, // swings back through the recoil, holds
   follow: { start: 0.38, peak: 1.00, end: 1.00, label: 'Follow-up' },
 };
 

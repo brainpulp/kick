@@ -536,8 +536,10 @@ function applyRecoil(scrubN) {
     b.quaternion.multiply(_rcQuat.setFromEuler(_rcEuler));
   };
   add('Hips', 0, deg * 0.5 * mir, 0);     // pelvis winds toward the kicking foot
-  add(`${K}UpLeg`, -deg, 0, 0);           // kicking femur pulls back (hip extension)
-  add(`${K}Leg`, -deg * 1.2, 0, 0);       // knee flexes (cocks the lower leg)
+  add(`${K}UpLeg`, -deg * 1.3, 0, 0);     // kicking femur pulls strongly back (hip extension)
+  add(`${K}Leg`, -deg * 1.0, 0, 0);       // knee flexes (cocks the lower leg)
+  add('Spine', -deg * 0.12, 0, 0);        // trunk arches back a little with the cock
+  add('Spine1', -deg * 0.1, 0, 0);
 }
 
 // The whip (strike): femur drives forward AND the knee extends forward together,
@@ -572,10 +574,11 @@ const _tbEuler = new THREE.Euler();
 function applyTorso(scrubN) {
   const deg = (params.torsoBend || 0) * torsoEnvelope(scrubN);
   if (deg < 0.05) return;
-  const per = deg / 3; // spread over the 3 spine joints
-  for (const s of ['Spine', 'Spine1', 'Spine2']) {
-    const b = bonesRef[s]; if (!b) continue;
-    _tbEuler.set(per * DEG, 0, 0, 'XYZ');
+  // Fold the whole upper body over the ball: pelvis tip + spine + neck + head.
+  const parts = [['Hips', 0.15], ['Spine', 0.2], ['Spine1', 0.2], ['Spine2', 0.2], ['Neck', 0.15], ['Head', 0.1]];
+  for (const [name, f] of parts) {
+    const b = bonesRef[name]; if (!b) continue;
+    _tbEuler.set(deg * f * DEG, 0, 0, 'XYZ');
     b.quaternion.multiply(_tbQuat.setFromEuler(_tbEuler));
   }
 }
