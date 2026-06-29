@@ -62,11 +62,10 @@ export const params = {
   // the ball's launch azimuth.
   followDir: 0,
 
-  // Follow-up STRENGTH — how big the body follow-through is (deg of hip rotation
-  // toward the plant foot). 0 = stop the foot at the ball (no follow-up); up to
-  // 90° = full follow-through: hips rotate, the kicking leg crosses over, weight
-  // transfers onto the kicking foot. Acts from contact onward.
-  followStrength: 0,
+  // Follow-up — what the kicking leg does after contact: 100 = full follow-through
+  // (leg follows the ball as far as it allows, + slippage); 0 = leg relaxes back
+  // toward a normal standing pose.
+  followStrength: 100,
 
   // Slippage — the plant foot leaves the ground and slides forward through the
   // follow-up (metres). Separate from follow-up strength.
@@ -118,6 +117,6 @@ export const meta = {
   armSwing: { min: 0, max: 1, step: 0.05, unit: '', label: 'Counter arm' },
   whip: { min: 0, max: 1, step: 0.01, unit: '', label: 'Whip (power)' },
   followDir: { min: 0, max: 90, step: 1, unit: '°', label: 'Follow-up direction (ball)' },
-  followStrength: { min: 0, max: 90, step: 1, unit: '°', label: 'Follow-up strength (body)' },
+  followStrength: { min: 0, max: 100, step: 1, unit: '%', label: 'Follow-up (leg: relax→follow)' },
   slippage: { min: 0, max: 1, step: 0.05, unit: 'm', label: 'Slippage (plant slide fwd)' },
 };

@@ -30,7 +30,8 @@ const { ball } = createField(scene);
 let kick = null, annotations = null, editor = null, gizmo = null, timeline = null, envtl = null, contact = null;
 let mocap = null, mocapModel = null, mocapAvailable = false, mocapBase = null;
 let mocapAlign = { x: 0, z: 0 };  // shift so the strike foot meets the ball
-let mocapPlantLock = { x: 0, z: 0 }; // plant-foot world spot at contact (slippage lock)
+let mocapPlantLock = { x: 0, z: 0 }; // plant-foot world spot (slippage lock)
+let mocapPlantStart = 0.3;            // clip time the plant foot goes down
 let mocapContactT = 0.7;          // normalized clip time of ball contact
 let mocapPlayT = 0;               // wall-clock for mocap playback (incl. delay)
 let mocapBaseQuat = null;         // model's facing rotation (before tilt lean)
@@ -197,6 +198,7 @@ loadCharacter(scene).then(({ model, bones, rest }) => {
     onChange: () => { if (!params.playing) applyFrame(params.scrub * CLIP_END); },
     onScrub: (f) => { params.playing = false; params.scrub = f; applyFrame(f * CLIP_END); },
     getScrub: () => params.scrub,
+    getContact: () => (mocapAvailable ? mocapContactT : null),
   });
   // Single consolidated timeline: the dopesheet is shown by default and the old
   // keyframe-editor bar stays hidden (authoring uses the editor directly).
@@ -433,9 +435,9 @@ function applyTilt(scrubN) {
 // it's grounded, fading out as the foot lifts.
 const _slPlant = new THREE.Vector3();
 function slipWindow(tn) {
-  const c = mocapContactT;
-  if (tn < c || tn > 0.90) return 0;
-  if (tn < c + 0.02) return _smooth((tn - c) / 0.02); // ease in from contact
+  const a = mocapPlantStart; // lock from the plant (no pre-contact slip)...
+  if (tn < a || tn > 0.90) return 0;
+  if (tn < a + 0.02) return _smooth((tn - a) / 0.02); // ease in at the plant
   if (tn > 0.82) return 1 - _smooth((tn - 0.82) / 0.08); // fade out as the foot lifts
   return 1;
 }
@@ -505,23 +507,21 @@ function applyRunupAngle(tn) {
 
 function followEnvelope(scrubN) { return env(scrubN, timings.follow); }
 
-// Body expression of the follow-up angle: after contact the hips keep turning
-// and the kicking leg sweeps across toward the non-kicking foot, in the same
-// direction the ball was sent (set in computeLaunch). Layered on the baked pose.
-const _fuQuat = new THREE.Quaternion();
-const _fuEuler = new THREE.Euler();
+// Follow-up = what the kicking leg does after contact. 100 = full follow-through
+// (the baked clip, leg follows the ball as far as it allows + slippage); 0 = the
+// leg relaxes back toward a normal standing pose. We pull the kicking leg toward
+// its rest pose by (1 − strength) after contact.
 function applyFollowUp(scrubN) {
-  const amt = (params.followStrength || 0) / 90 * followEnvelope(scrubN); // 0..1
-  if (amt < 0.01) return;
-  const mir = params.footedness === 'right' ? 1 : -1;
+  const env = followEnvelope(scrubN);
+  if (env < 0.001) return;
+  const s = (params.followStrength ?? 100) / 100;  // 1 = full follow, 0 = relax
+  const relax = (1 - s) * env;
+  if (relax < 0.01) return;
   const K = params.footedness === 'right' ? 'Right' : 'Left';
-  const add = (name, x, y, z) => {
-    const b = bonesRef[name]; if (!b) return;
-    _fuEuler.set(x * DEG, y * DEG, z * DEG, 'XYZ');
-    b.quaternion.multiply(_fuQuat.setFromEuler(_fuEuler));
-  };
-  add('Hips', 0, amt * 25 * mir, 0);          // pelvis keeps rotating toward target
-  add(`${K}UpLeg`, 0, 0, -amt * 35 * mir);    // kicking leg sweeps across the body
+  for (const name of [`${K}UpLeg`, `${K}Leg`, `${K}Foot`]) {
+    const b = bonesRef[name]; const r = restRef[name];
+    if (b && r) b.quaternion.slerp(r, relax);
+  }
 }
 
 // Recoil timing envelope (0..1): the cock-back winds up through the recoil stage
@@ -700,11 +700,15 @@ function calibrateMocap() {
   const o = mocap.rootOffset(mocapContactT) || { x: 0, z: 0 };
   mocapAlign = { x: o.x - fl[ci].x, z: o.z - fl[ci].z };
   // Plant (support) foot world position at contact, in the RUNTIME frame — the
-  // "locked" spot the foot should hold during the follow-up (for slippage=0).
+  // "locked" spot the foot should hold — captured at the PLANT moment (before
+  // contact) so the foot doesn't slip in the lead-up to the strike; held through
+  // contact, then slippage takes over after it.
   const S = K === 'Right' ? 'Left' : 'Right';
   const plant = bonesRef[`${S}ToeBase`] || bonesRef[`${S}Foot`];
-  mocap.seek(mocapContactT);
-  mocapModel.position.set(mocapBase.x - o.x + mocapAlign.x, mocapBase.y, mocapBase.z - o.z + mocapAlign.z);
+  mocapPlantStart = 0.80 * mocapContactT; // ~ when the plant foot is down
+  const op = mocap.rootOffset(mocapPlantStart) || { x: 0, z: 0 };
+  mocap.seek(mocapPlantStart);
+  mocapModel.position.set(mocapBase.x - op.x + mocapAlign.x, mocapBase.y, mocapBase.z - op.z + mocapAlign.z);
   mocapModel.updateMatrixWorld(true);
   const pl = plant ? plant.getWorldPosition(new THREE.Vector3()) : new THREE.Vector3();
   mocapPlantLock = { x: pl.x, z: pl.z };
