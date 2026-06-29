@@ -375,6 +375,7 @@ function applyFrame(tt) {
     applyRunupAngle(tn); // angle the approach (rotate the run about the ball)
     applySlippage(tn);   // lock/scale the plant-foot forward slide (0 = no slide)
     applyPlantPoint(tn); // aim the plant foot at the goal (Point deviates) — last
+    applyGaze(tn);       // keep the head locked on the ball until landing
   } else if (params.source === 'authored' && editor && editor.keys.length) {
     editor.applyAt(tn);
   } else {
@@ -507,6 +508,43 @@ function applyPlantPoint(tn) {
   _spRy.setFromAxisAngle(_spYAxis, delta);
   _spCorr.copy(_spPQ).invert().multiply(_spRy).multiply(_spPQ); // parent⁻¹·Ry·parent
   foot.quaternion.premultiply(_spCorr);
+}
+
+// Lock gaze: the head stays aimed at the ball from the run-up through landing,
+// then releases toward the goal. The head's "face" axis is solved once as a fixed
+// LOCAL axis (rigid to the head bone) so the look-at converges exactly.
+const _gzHead = new THREE.Vector3(), _gzNeck = new THREE.Vector3(), _gzLA = new THREE.Vector3(), _gzRA = new THREE.Vector3();
+const _gzFace = new THREE.Vector3(), _gzDes = new THREE.Vector3(), _gzUp = new THREE.Vector3(), _gzLat = new THREE.Vector3();
+const _gzQ = new THREE.Quaternion(), _gzPQ = new THREE.Quaternion(), _gzCorr = new THREE.Quaternion(), _gzId = new THREE.Quaternion();
+const _gzHeadQ = new THREE.Quaternion();
+const _gzBall = new THREE.Vector3(0, BALL_RADIUS, 0);
+let _gzLocalFace = null; // face direction in the head bone's local frame (cached)
+function gazeEnv(scrubN) {
+  if (scrubN < 0.90) return 1;            // locked on the ball through landing
+  return 1 - _smooth((scrubN - 0.90) / 0.10); // release toward the goal after landing
+}
+function applyGaze(scrubN) {
+  const e = gazeEnv(scrubN);
+  if (e < 0.01) return;
+  const head = bonesRef.Head, neck = bonesRef.Neck; if (!head) return;
+  mocapModel.updateMatrixWorld(true);
+  head.getWorldPosition(_gzHead);
+  head.getWorldQuaternion(_gzHeadQ);
+  if (!_gzLocalFace) {
+    // Solve the head's face axis once from an anatomical estimate (up × shoulders).
+    _gzUp.copy(neck ? _gzHead.clone().sub(neck.getWorldPosition(_gzNeck)) : new THREE.Vector3(0, 1, 0)).normalize();
+    if (bonesRef.LeftArm && bonesRef.RightArm) _gzLat.copy(bonesRef.LeftArm.getWorldPosition(_gzLA)).sub(bonesRef.RightArm.getWorldPosition(_gzRA)).setY(0).normalize();
+    else _gzLat.set(1, 0, 0);
+    const f = _gzUp.clone().cross(_gzLat).normalize(); if (f.z > 0) f.negate();
+    _gzLocalFace = f.applyQuaternion(_gzHeadQ.clone().invert()).normalize(); // → local
+  }
+  _gzFace.copy(_gzLocalFace).applyQuaternion(_gzHeadQ).normalize(); // rigid current facing
+  _gzDes.copy(_gzBall).sub(_gzHead).normalize();                    // head → ball
+  _gzQ.setFromUnitVectors(_gzFace, _gzDes);
+  _gzQ.copy(_gzId).slerp(_gzQ, e);                                  // blend by gaze envelope
+  head.parent.getWorldQuaternion(_gzPQ);
+  _gzCorr.copy(_gzPQ).invert().multiply(_gzQ).multiply(_gzPQ);
+  head.quaternion.premultiply(_gzCorr);
 }
 
 // Angle the run-up: rotate the whole (clean mocap) approach about the ball so the
