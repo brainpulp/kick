@@ -374,6 +374,7 @@ function applyFrame(tt) {
     if (he > 0.001) { mocapModel.position.z -= he * 0.05; mocapModel.position.y += he * 0.025; }
     applyRunupAngle(tn); // angle the approach (rotate the run about the ball)
     applySlippage(tn);   // lock/scale the plant-foot forward slide (0 = no slide)
+    applyPlantPoint(tn); // aim the plant foot at the goal (Point deviates) — last
   } else if (params.source === 'authored' && editor && editor.keys.length) {
     editor.applyAt(tn);
   } else {
@@ -461,6 +462,9 @@ function applySlippage(tn) {
 // (point), ramped over the plant window. ~0.73°/cm at this leg length.
 const _spQuat = new THREE.Quaternion();
 const _spEuler = new THREE.Euler();
+const _spAnk = new THREE.Vector3(), _spToe = new THREE.Vector3();
+const _spPQ = new THREE.Quaternion(), _spRy = new THREE.Quaternion(), _spCorr = new THREE.Quaternion();
+const _spYAxis = new THREE.Vector3(0, 1, 0);
 function supportEnv(tn) {
   if (tn < 0.26 || tn > 0.92) return 0;
   if (tn < 0.36) return _smooth((tn - 0.26) / 0.10);
@@ -481,7 +485,28 @@ function applySupport(tn) {
     b.quaternion.multiply(_spQuat.setFromEuler(_spEuler));
   };
   add(`${S}UpLeg`, depthDeg, 0, mir * latDeg);  // sagittal = depth, lateral = sideways
-  add(`${S}Foot`, 0, mir * ptDeg, 0);           // yaw the toe (point off-target for effect)
+}
+
+// Plant foot points at the GOAL (-Z) by default; the Point param yaws it off that
+// (open the foot to add effect). Runs LAST so it accounts for the whole-body tilt
+// and run-up rotations, correcting the foot's final world heading.
+function applyPlantPoint(tn) {
+  const e = supportEnv(tn);
+  if (e < 0.01) return;
+  const S = params.footedness === 'right' ? 'Left' : 'Right';
+  const mir = params.footedness === 'right' ? 1 : -1;
+  const foot = bonesRef[`${S}Foot`], toeB = bonesRef[`${S}ToeBase`];
+  if (!foot || !toeB) return;
+  mocapModel.updateMatrixWorld(true);
+  foot.getWorldPosition(_spAnk); toeB.getWorldPosition(_spToe);
+  const heading = Math.atan2(_spToe.x - _spAnk.x, -(_spToe.z - _spAnk.z)); // 0 = facing the goal
+  const desired = (params.supportPoint || 0) * DEG * mir;                   // 0 = at goal
+  const delta = (desired - heading) * e;
+  if (Math.abs(delta) < 0.002) return;
+  foot.parent.getWorldQuaternion(_spPQ);
+  _spRy.setFromAxisAngle(_spYAxis, delta);
+  _spCorr.copy(_spPQ).invert().multiply(_spRy).multiply(_spPQ); // parent⁻¹·Ry·parent
+  foot.quaternion.premultiply(_spCorr);
 }
 
 // Angle the run-up: rotate the whole (clean mocap) approach about the ball so the
