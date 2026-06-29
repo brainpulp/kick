@@ -48,12 +48,15 @@ https://app.notion.com/p/a0290648726c4551b6901818d5a74070
 - Gaze annotation from the eyes → ball.
 - Editing a parameter jumps the scrub to that parameter's moment.
 - Foot-skate reduced (root-travel scale tuned so the planted foot stays put).
+- Lock-gaze ANIMATION — head pinned to the ball through run-up until landing (~0.90), then releases.
+- Follow-up BODY — at high follow strength the shoulders/hips keep rotating toward the plant
+  foot and the kicking leg swings up & ACROSS the midline (cross-over over the plant foot).
 
 **Missing / not yet done**
 - Run-up STEPS (1–5) + 45° approach ANGLE — controls exist but paused; need a dedicated
   run/locomotion clip (the kick clip can't supply variable straight/angled steps).
-- Lock-gaze ANIMATION — actually pin the head to the ball until landing (only the annotation does so now).
-- Follow-up BODY details — kicking leg crossing over the plant foot; weight transfer / landing on the kicking foot.
+- Follow-up landing — literal weight transfer / landing on the kicking foot (player stays
+  rooted; only the upper-body/leg cross-over is modelled, not a real forward step).
 - Contact zones — expand foot/ball parts + a contact annotation marking foot-point × ball-point.
 - Live tuning to confirm: pelvis un-wind direction, counter-arm extents, tilt direction, hop feel.
 - Later: populate real-kick scenarios (e.g. Caniggia vs River '92); Supabase backend.

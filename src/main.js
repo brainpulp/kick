@@ -358,6 +358,7 @@ function applyFrame(tt) {
     applyTorso(tn);                       // trunk counter-strike over the ball
     applyArms(tn);                        // counter-arm swing
     applyFollowUp(tn);                     // follow-through sweep (post-contact)
+    applyFollowBody(tn);                   // cross-over + shoulder rotation toward plant
     // Root motion: model faces -Z (rotation.y = PI) so negate clip X/Z; align
     // shift makes the strike foot meet the ball.
     const o = params.rootMotion ? mocap.rootOffset(tn) : null;
@@ -585,6 +586,37 @@ function applyFollowUp(scrubN) {
     const b = bonesRef[name]; const r = restRef[name];
     if (b && r) b.quaternion.slerp(r, relax);
   }
+}
+
+// Follow-up BODY: when the kicking leg follows through (high follow strength), the
+// whole body keeps turning toward the planting foot — the shoulders/hips continue
+// to rotate and the kicking leg swings up and ACROSS the midline, crossing over the
+// plant foot as the weight transfers forward onto it. Gated on followStrength so it
+// is complementary to applyFollowUp's relax (0 = leg relaxes, no cross-over). The
+// player stays rooted, so this is the upper-body/leg crossing, not a literal step.
+const _fbQuat = new THREE.Quaternion();
+const _fbEuler = new THREE.Euler();
+function applyFollowBody(scrubN) {
+  const env = followEnvelope(scrubN);
+  const s = (params.followStrength ?? 100) / 100;
+  const amt = s * env;
+  if (amt < 0.01) return;
+  const mir = params.footedness === 'right' ? 1 : -1;
+  const K = params.footedness === 'right' ? 'Right' : 'Left';
+  const add = (name, x, y, z) => {
+    const b = bonesRef[name]; if (!b) return;
+    _fbEuler.set(x * DEG, y * DEG, z * DEG, 'XYZ');
+    b.quaternion.multiply(_fbQuat.setFromEuler(_fbEuler));
+  };
+  // Continue the un-wind toward the plant foot (same sense as the whip's pelvis
+  // un-wind), carrying the shoulders round — "shoulder axis keeps rotating".
+  add('Hips', 0, -amt * 22 * mir, 0);
+  add('Spine1', 0, -amt * 12 * mir, 0);
+  add('Spine2', 0, -amt * 12 * mir, 0);
+  // Kicking leg swings up and across the midline (cross-over over the plant foot):
+  // continued hip flexion + adduction swing toward the plant side.
+  add(`${K}UpLeg`, amt * 18, -amt * 28 * mir, 0);
+  add(`${K}Leg`, -amt * 10, 0, 0); // knee softens as the leg comes down to land
 }
 
 // Recoil timing envelope (0..1): the cock-back winds up through the recoil stage
