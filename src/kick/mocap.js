@@ -115,8 +115,13 @@ export function applyOverrides(bones, rest, params) {
     const b = bones[name]; if (!b) return;
     b.quaternion.multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(x * DEG, y * DEG, z * DEG, 'XYZ')));
   };
-  // Hip turn (Hips yaw) relative to the 38° default.
-  add('Hips', 0, (params.hipTurn - 38) * 0.4 * mir, 0);
+  // Hip turn: rotate the PELVIS (Hips yaw) relative to the 38° default, but
+  // counter-rotate the thighs about their long axis so the planted feet don't
+  // spin with it — real hip/leg separation, not a rigid whole-body turn.
+  const hipYaw = (params.hipTurn - 38) * 0.4 * mir;
+  add('Hips', 0, hipYaw, 0);
+  add('LeftUpLeg', 0, -hipYaw, 0);
+  add('RightUpLeg', 0, -hipYaw, 0);
   // Lock-ankle (foot plantarflexion, X) relative to 25°.
   const K = params.footedness === 'right' ? 'Right' : 'Left';
   add(`${K}Foot`, (params.lockAnkle - 25) * 0.6, 0, 0);
