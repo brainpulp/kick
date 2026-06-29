@@ -2,6 +2,21 @@ import * as THREE from 'three';
 
 const DEG = Math.PI / 180;
 const lerp = THREE.MathUtils.lerp;
+
+// Ball contact point → {bx,by} in -1..1 (bx: E+ / W−, by: N+ / S−). Inner ring
+// = 0.5, outer ring = 1.0; diagonals are normalized so they're not over-weighted.
+export function ballPoint(zone) {
+  if (!zone || zone === 'center') return { bx: 0, by: 0 };
+  const m = /^(in|out)-(N|NE|E|SE|S|SW|W|NW)$/.exec(zone);
+  if (!m) return { bx: 0, by: 0 };
+  const r = m[1] === 'out' ? 1 : 0.5;
+  const d = m[2];
+  let bx = 0, by = 0;
+  if (d.includes('N')) by = 1; if (d.includes('S')) by = -1;
+  if (d.includes('E')) bx = 1; if (d.includes('W')) bx = -1;
+  const len = Math.hypot(bx, by) || 1;
+  return { bx: (bx / len) * r, by: (by / len) * r };
+}
 export const CONTACT_T = 1.0;   // normalized time of ball contact
 export const CLIP_END = 1.45;   // 3-step run-up + strike + held-gaze follow-through
 
@@ -60,19 +75,28 @@ export class KickAnimation {
     const power = clamp(0.3 + 0.5 * p.whip + 0.35 * (p.hipTurn / 60), 0, 1);
     const speed = 8 + power * 24; // 8..32 m/s
 
+    // Ball contact point (center + ring×compass) → bx (E+/W−), by (N+/S−), -1..1.
+    const { bx, by } = ballPoint(p.ballZone);
+
     let elevation = 12 - p.kneeAim * 0.9 + p.tilt * 0.25; // deg
-    if (p.ballZone === 'below-center') elevation += 14;
+    // Striking below centre (by<0) lofts and adds backspin; above centre keeps it down.
+    elevation += -by * 18;
     // Aim Support depth (plant foot behind the ball): more depth → more hip room
     // → more loft. Default 12 cm = neutral; affects loft across the whole range.
     elevation += (p.aimSupportDepth - 12) * 0.8;
     elevation = clamp(elevation, 2, 48);
 
-    // Curl: inside foot curls one way, outside the other; mirror for left foot.
+    // Curl from the foot zone (inside/outside) + sidespin from off-centre contact.
     const mir = p.footedness === 'right' ? 1 : -1;
     let azimuth = 0, spin = 0;
-    if (p.footZone === 'inside') { azimuth = -7 * mir; spin = -1 * mir; }
-    else if (p.footZone === 'outside') { azimuth = 7 * mir; spin = 1 * mir; }
-    if (p.ballZone === 'off-center') spin += 0.6 * mir;
+    if (p.footZone === 'inside' || p.footZone === 'inside-instep') { azimuth = -7 * mir; spin = -1 * mir; }
+    else if (p.footZone === 'outside-bony') { azimuth = 7 * mir; spin = 1 * mir; }
+    else if (p.footZone === 'toe') { spin += 0; } // toe-poke: straight, low control (no curl)
+    // Horizontal off-centre contact: pushes the ball away from the strike side + spin.
+    azimuth += -bx * 14;
+    spin += bx * 1.6;
+    // Below-centre with backspin already lofts; add a touch of float.
+    spin += by < 0 ? by * 0.4 : 0;
 
     // Follow-up direction: the ball leaves deflected toward the NON-kicking foot
     // (right-footer → player's left → -X). 0 = straight.

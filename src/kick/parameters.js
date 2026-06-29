@@ -2,8 +2,11 @@
 // Each entry: value (default), min, max, step, unit, and a short description of
 // what it affects. Ranges come from the biomechanical spec (first-pass values).
 
-export const FOOT_ZONES = ['instep/laces', 'inside', 'outside'];
-export const BALL_ZONES = ['center', 'below-center', 'off-center'];
+// Foot contact zones (where on the boot meets the ball).
+export const FOOT_ZONES = ['laces', 'inside', 'outside-bony', 'toe', 'inside-instep'];
+// Ball contact zones: center + two concentric rings, each N/NE/E/SE/S/SW/W/NW.
+const BALL_DIRS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+export const BALL_ZONES = ['center', ...BALL_DIRS.map((d) => `in-${d}`), ...BALL_DIRS.map((d) => `out-${d}`)];
 export const FOOTEDNESS = ['right', 'left'];
 
 // Live values the rest of the app reads/writes (bound to the GUI).
@@ -32,7 +35,7 @@ export const params = {
   lockAnkle: 25,
 
   // §10 Points — contact geometry.
-  footZone: 'instep/laces',
+  footZone: 'laces',
   ballZone: 'center',
 
   // Recoil — the cock-back just before the strike. Pelvis winds toward the
