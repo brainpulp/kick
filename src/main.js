@@ -7,6 +7,7 @@ import { createPanel } from './ui/panel.js';
 import { PoseEditor, buildEditorGUI, attachGizmo, KEY_DEFS } from './ui/editor.js';
 import { createTimeline } from './ui/timeline.js';
 import { createEnvTimeline } from './ui/envtimeline.js';
+import { createContactEditor } from './ui/contact.js';
 import { Annotations } from './ui/annotations.js';
 import { params } from './kick/parameters.js';
 import { timings, env } from './kick/timing.js';
@@ -26,7 +27,7 @@ if (buildEl) buildEl.textContent = `build ${__BUILD__}`;
 const { renderer, labelRenderer, scene, camera, controls } = createScene();
 const { ball } = createField(scene);
 
-let kick = null, annotations = null, editor = null, gizmo = null, timeline = null, envtl = null;
+let kick = null, annotations = null, editor = null, gizmo = null, timeline = null, envtl = null, contact = null;
 let mocap = null, mocapModel = null, mocapAvailable = false, mocapBase = null;
 let mocapAlign = { x: 0, z: 0 };  // shift so the strike foot meets the ball
 let mocapPlantLock = { x: 0, z: 0 }; // plant-foot world spot at contact (slippage lock)
@@ -183,7 +184,12 @@ loadCharacter(scene).then(({ model, bones, rest }) => {
   const setView = (px, py, pz, tx, ty, tz) => {
     camera.position.set(px, py, pz); controls.target.set(tx, ty, tz); controls.update();
   };
-  buildViewButtons(setView);
+  contact = createContactEditor({
+    scene, camera, controls, renderer, bones, params, ballRadius: BALL_RADIUS,
+    onEnter: () => { params.playing = false; params.scrub = mocapContactT; applyFrame(mocapContactT * CLIP_END); },
+    onChange: () => { if (!params.playing) applyFrame(params.scrub * CLIP_END); },
+  });
+  buildViewButtons(setView, () => contact.toggle());
 
   gui.add(params, 'rootMotion').name('Root motion (locomotion)')
     .onChange(() => { if (!params.playing) applyFrame(params.scrub * CLIP_END); });
@@ -311,11 +317,12 @@ function paramMoment(key) {
 }
 
 // On-screen camera-view buttons (outside the side panel), top-left under the title.
-function buildViewButtons(setView) {
+function buildViewButtons(setView, onContact) {
   const css = `#views{position:fixed;left:12px;top:54px;display:flex;gap:6px;z-index:25}
     #views button{font:600 11px system-ui,sans-serif;color:#cfe;background:rgba(18,22,20,.8);
       border:1px solid #2c3a32;border-radius:6px;padding:5px 9px;cursor:pointer}
-    #views button:hover{background:rgba(40,60,48,.95)}`;
+    #views button:hover{background:rgba(40,60,48,.95)}
+    #views button.contact{border-color:#caa23f;color:#ffe9a8}`;
   const st = document.createElement('style'); st.textContent = css; document.head.appendChild(st);
   const wrap = document.createElement('div'); wrap.id = 'views';
   const defs = [
@@ -329,6 +336,9 @@ function buildViewButtons(setView) {
     btn.addEventListener('click', () => setView(...v));
     wrap.appendChild(btn);
   }
+  const cb = document.createElement('button'); cb.textContent = '◎ Contact'; cb.className = 'contact';
+  cb.addEventListener('click', () => { onContact && onContact(); cb.classList.toggle('active'); });
+  wrap.appendChild(cb);
   document.body.appendChild(wrap);
 }
 
@@ -744,6 +754,7 @@ function animate() {
   if (gizmo) gizmo.update();
   if (timeline) timeline.update(params.scrub);
   if (envtl) envtl.update();
+  if (contact) contact.update();
   updateTrajectory();
   controls.update();
   renderer.render(scene, camera);
