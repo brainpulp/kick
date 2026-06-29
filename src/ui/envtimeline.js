@@ -19,16 +19,18 @@ const css = `
   background:#8ff0b6;cursor:ew-resize;border:1px solid #0c140f}
 #envtl .h.peak{background:#eafff0}
 #envtl .ph{position:absolute;top:0;bottom:0;width:2px;background:#ffd23f;pointer-events:none;left:0}
+#envtl .peg{position:absolute;top:0;bottom:0;width:2px;background:#ff5d5d;opacity:.8;pointer-events:none;left:0}
 #envtl .rst{cursor:pointer;color:#9fb;opacity:.7;font-size:10px}
 #envtl .rst:hover{opacity:1}`;
 
-export function createEnvTimeline({ onChange, onScrub, getScrub }) {
+export function createEnvTimeline({ onChange, onScrub, getScrub, getContact }) {
   const style = document.createElement('style'); style.textContent = css; document.head.appendChild(style);
   const el = document.createElement('div'); el.id = 'envtl';
-  el.innerHTML = `<h4><span>Timing (when each acts) — drag the ruler to scrub</span><span class="rst" data-all>↺ reset all</span></h4>`;
+  el.innerHTML = `<h4><span>Timing — drag anywhere to scrub · red line = contact (pegged)</span><span class="rst" data-all>↺ reset all</span></h4>`;
   document.body.appendChild(el);
 
   const ph = document.createElement('div'); ph.className = 'ph'; // playhead overlay (spans rows)
+  const peg = document.createElement('div'); peg.className = 'peg'; // fixed contact marker
   const rows = {};
   const clamp01 = (v) => Math.max(0, Math.min(1, v));
 
@@ -38,10 +40,16 @@ export function createEnvTimeline({ onChange, onScrub, getScrub }) {
   const ruler = document.createElement('div'); ruler.className = 'ruler';
   rulerRow.append(ruler); el.append(rulerRow);
   const scrubFrom = (ev) => { const r = ruler.getBoundingClientRect(); onScrub && onScrub(clamp01((ev.clientX - r.left) / r.width)); };
-  ruler.addEventListener('pointerdown', (e) => {
-    e.preventDefault(); ruler.setPointerCapture(e.pointerId); scrubFrom(e);
+  // Scrub by dragging ANYWHERE on the timeline (ruler or any track row), as long
+  // as you're not grabbing an envelope handle (those stopPropagation).
+  el.addEventListener('pointerdown', (e) => {
+    if (e.target.closest && e.target.closest('.h')) return;     // handle drag
+    if (e.target.closest && e.target.closest('.rst')) return;   // reset link
+    const r = ruler.getBoundingClientRect();
+    if (e.clientX < r.left - 2) return;                          // label column → ignore
+    e.preventDefault(); scrubFrom(e);
     const move = (ev) => scrubFrom(ev);
-    const up = (ev) => { ruler.releasePointerCapture(ev.pointerId); window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); };
+    const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); };
     window.addEventListener('pointermove', move); window.addEventListener('pointerup', up);
   });
 
@@ -61,7 +69,7 @@ export function createEnvTimeline({ onChange, onScrub, getScrub }) {
     bindDrag(key, 'peak', hP, trk);
     bindDrag(key, 'end', hE, trk);
   }
-  el.append(ph);
+  el.append(ph); el.append(peg);
 
   function mkHandle(cls) { const d = document.createElement('div'); d.className = `h ${cls}`.trim(); return d; }
 
@@ -103,9 +111,14 @@ export function createEnvTimeline({ onChange, onScrub, getScrub }) {
     const s = getScrub ? getScrub() : 0;
     const r = ruler.getBoundingClientRect();
     const er = el.getBoundingClientRect();
-    ph.style.left = `${(r.left - er.left) + s * r.width}px`;
-    ph.style.top = `${(r.top - er.top) - 2}px`;
-    ph.style.height = `${(rows[keys[keys.length - 1]].trk.getBoundingClientRect().bottom - r.top) + 4}px`;
+    const top = (r.top - er.top) - 2;
+    const height = (rows[keys[keys.length - 1]].trk.getBoundingClientRect().bottom - r.top) + 4;
+    ph.style.left = `${(r.left - er.left) + s * r.width}px`; ph.style.top = `${top}px`; ph.style.height = `${height}px`;
+    const c = getContact ? getContact() : null;
+    if (c == null) { peg.style.display = 'none'; } else {
+      peg.style.display = 'block';
+      peg.style.left = `${(r.left - er.left) + c * r.width}px`; peg.style.top = `${top}px`; peg.style.height = `${height}px`;
+    }
   }
 
   return { update, setVisible(v) { el.style.display = v ? 'block' : 'none'; } };
