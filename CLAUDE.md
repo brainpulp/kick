@@ -6,6 +6,30 @@
 > built and deploys to GitHub Pages; we are mid-way through defining every kick
 > parameter with the owner (Maxi), one at a time.
 
+## 🗂 Task workflow (Notion board — the source of truth)
+
+Tasks live in the Notion DB **"Kick — Tasks"**:
+https://app.notion.com/p/a0290648726c4551b6901818d5a74070
+(data source id `7b208063-1f8d-422c-820f-8a1b246afcf1`). The old GitHub issue #31 is closed/retired.
+
+**Status lifecycle (board columns):**
+- **To do** — Maxi's build queue (he adds/curates).
+- **In progress** — Claude is building it.
+- **Done** — Claude shipped & deployed it → *awaiting Maxi's approval*.
+- **Approved** — Maxi reviewed & signed off. **Maxi-only column — Claude never moves cards here.**
+- **Needs rework** — Maxi rejected ("not good enough") → Claude redoes it.
+- **Needs input** — Claude needs an answer before building.
+- **Backlog** — later.
+
+**Every turn, Claude:**
+1. Reads the board first (fetch the DB / card pages; `query_data_sources` needs a paid plan, so fetch pages or rely on known IDs). Read **comments** on cards.
+2. Works items in **To do** and **Needs rework** (by Priority), moving each **In progress → Done**.
+3. Updates Status as it goes; never touches **Approved**.
+
+**Questions:** ask in BOTH places — here in chat AND as a **comment on the relevant card** (and set it to **Needs input**). Maxi answers in either. Always re-read card comments; once a question is answered (in chat or Notion), **remove/resolve the Notion question** and move the card off Needs input.
+
+> Note: the Notion MCP connection drops intermittently — reload the Notion tools via ToolSearch and retry.
+
 ## ✅ Live request checklist (keep this current; summarize done/missing every reply)
 
 **Done & deployed**
