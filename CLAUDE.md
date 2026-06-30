@@ -39,9 +39,10 @@ https://app.notion.com/p/a0290648726c4551b6901818d5a74070
 - Lighting/turf/pitch lines/cones; 3D gizmos + body-axis lines (toggle).
 - Per-control reset + reset-all; scenarios UI (local store).
 - Parameters wired: Tilt, Recoil, Hop (forward skip, fixed), Whip (femur+knee+pelvis un-wind),
-  Torso counter-strike, Knee-plumb range (−20…+10), Follow-up DIRECTION + STRENGTH,
+  Torso counter-strike, Knee-plumb range (−20…+10), Follow-up DIRECTION,
   Counter-arm (forward in run-up → back from end of recoil), Slippage (plant slide).
-- Removed Follow-Through power/control dropdown (covered by Follow-up strength).
+- Removed Follow-Through power/control dropdown AND Follow-up STRENGTH slider — the
+  follow-through is always full now (cross-over always on); slippage is the one knob on top.
 - ⏱ Timing editor (dopesheet: drag start/peak/end per effect).
 - View buttons (Front/Side/Top/Default).
 - Ball location fixed (anchors the KICKING foot to the ball at the true strike).
@@ -49,8 +50,8 @@ https://app.notion.com/p/a0290648726c4551b6901818d5a74070
 - Editing a parameter jumps the scrub to that parameter's moment.
 - Foot-skate reduced (root-travel scale tuned so the planted foot stays put).
 - Lock-gaze ANIMATION — head pinned to the ball through run-up until landing (~0.90), then releases.
-- Follow-up BODY — at high follow strength the shoulders/hips keep rotating toward the plant
-  foot and the kicking leg swings up & ACROSS the midline (cross-over over the plant foot).
+- Follow-up BODY — the (always-full) follow-through turns the shoulders/hips toward the plant
+  foot and swings the kicking leg up & ACROSS the midline (cross-over over the plant foot).
 
 **Missing / not yet done**
 - Run-up STEPS (1–5) + 45° approach ANGLE — controls exist but paused; need a dedicated

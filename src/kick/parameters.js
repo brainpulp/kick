@@ -62,13 +62,9 @@ export const params = {
   // the ball's launch azimuth.
   followDir: 0,
 
-  // Follow-up — what the kicking leg does after contact: 100 = full follow-through
-  // (leg follows the ball as far as it allows, + slippage); 0 = leg relaxes back
-  // toward a normal standing pose.
-  followStrength: 100,
-
   // Slippage — the plant foot leaves the ground and slides forward through the
-  // follow-up (metres). Separate from follow-up strength.
+  // follow-up (metres). The follow-through itself is always full (the kicking leg
+  // follows the ball and crosses over); slippage is the one knob on top of it.
   slippage: 0,
 
   // playback
@@ -117,6 +113,5 @@ export const meta = {
   armSwing: { min: 0, max: 1, step: 0.05, unit: '', label: 'Counter arm' },
   whip: { min: 0, max: 1, step: 0.01, unit: '', label: 'Whip (power)' },
   followDir: { min: 0, max: 90, step: 1, unit: '°', label: 'Follow-up direction (ball)' },
-  followStrength: { min: 0, max: 100, step: 1, unit: '%', label: 'Follow-up (leg: relax→follow)' },
   slippage: { min: 0, max: 1, step: 0.05, unit: 'm', label: 'Slippage (plant slide fwd)' },
 };

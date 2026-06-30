@@ -310,7 +310,7 @@ function paramMoment(key) {
     case 'tilt': return timings.tilt.peak;
     case 'armSwing': return timings.arm.peak;
     case 'hop': return timings.hop.peak;
-    case 'followDir': case 'followStrength': case 'slippage': return mid;
+    case 'followDir': case 'slippage': return mid;
     case 'lockAnkle': case 'kneeAim': case 'hipTurn': case 'footZone': case 'ballZone': return c;
     case 'aimSupportDepth': case 'supportLateral': case 'supportPoint': return Math.max(0, c * 0.85); // the plant
     case 'runupAngle': case 'runupSteps': return Math.min(0.25, c * 0.5); // mid run-up
@@ -357,8 +357,7 @@ function applyFrame(tt) {
     applyWhip(tn);                        // strike: femur+knee drive, pelvis un-wind
     applyTorso(tn);                       // trunk counter-strike over the ball
     applyArms(tn);                        // counter-arm swing
-    applyFollowUp(tn);                     // follow-through sweep (post-contact)
-    applyFollowBody(tn);                   // cross-over + shoulder rotation toward plant
+    applyFollowBody(tn);                   // follow-through: cross-over + shoulders turn to plant
     // Root motion: model faces -Z (rotation.y = PI) so negate clip X/Z; align
     // shift makes the strike foot meet the ball.
     const o = params.rootMotion ? mocap.rootOffset(tn) : null;
@@ -571,35 +570,15 @@ function applyRunupAngle(tn) {
 
 function followEnvelope(scrubN) { return env(scrubN, timings.follow); }
 
-// Follow-up = what the kicking leg does after contact. 100 = full follow-through
-// (the baked clip, leg follows the ball as far as it allows + slippage); 0 = the
-// leg relaxes back toward a normal standing pose. We pull the kicking leg toward
-// its rest pose by (1 − strength) after contact.
-function applyFollowUp(scrubN) {
-  const env = followEnvelope(scrubN);
-  if (env < 0.001) return;
-  const s = (params.followStrength ?? 100) / 100;  // 1 = full follow, 0 = relax
-  const relax = (1 - s) * env;
-  if (relax < 0.01) return;
-  const K = params.footedness === 'right' ? 'Right' : 'Left';
-  for (const name of [`${K}UpLeg`, `${K}Leg`, `${K}Foot`]) {
-    const b = bonesRef[name]; const r = restRef[name];
-    if (b && r) b.quaternion.slerp(r, relax);
-  }
-}
-
-// Follow-up BODY: when the kicking leg follows through (high follow strength), the
-// whole body keeps turning toward the planting foot — the shoulders/hips continue
-// to rotate and the kicking leg swings up and ACROSS the midline, crossing over the
-// plant foot as the weight transfers forward onto it. Gated on followStrength so it
-// is complementary to applyFollowUp's relax (0 = leg relaxes, no cross-over). The
-// player stays rooted, so this is the upper-body/leg crossing, not a literal step.
+// Follow-up BODY: the follow-through is always full — after contact the whole body
+// keeps turning toward the planting foot (shoulders/hips continue to rotate) and the
+// kicking leg swings up and ACROSS the midline, crossing over the plant foot as the
+// weight transfers forward onto it. Ramped by the follow envelope. The player stays
+// rooted, so this is the upper-body/leg crossing, not a literal forward step.
 const _fbQuat = new THREE.Quaternion();
 const _fbEuler = new THREE.Euler();
 function applyFollowBody(scrubN) {
-  const env = followEnvelope(scrubN);
-  const s = (params.followStrength ?? 100) / 100;
-  const amt = s * env;
+  const amt = followEnvelope(scrubN);
   if (amt < 0.01) return;
   const mir = params.footedness === 'right' ? 1 : -1;
   const K = params.footedness === 'right' ? 'Right' : 'Left';
