@@ -21,8 +21,13 @@ export const params = {
   supportLateral: 0,
   supportPoint: 0,
 
+  // NOTE: the base animation is a full, natural mocap kick. Every slider below is a
+  // DEVIATION layered on top of it — 0/neutral = the natural clip untouched; turn a
+  // slider up to exaggerate that aspect. So the default state is the natural base.
+
   // §3 Tilt — lateral trunk lean away from the kicking leg (deg) → clearance/lift.
-  tilt: 15,
+  // 0 = the clip's own natural lean.
+  tilt: 0,
 
   // §5 Hip Turn — pelvic axial rotation toward target (deg) → core power.
   hipTurn: 38,
@@ -41,21 +46,23 @@ export const params = {
   // Recoil — the cock-back just before the strike. Pelvis winds toward the
   // kicking foot (rotating about the plant hip) and the kicking femur pulls back
   // with the knee flexing. Degrees of femoral backswing (knee + pelvis scale off
-  // it). Peaks at the top of the backswing, released by contact.
-  recoil: 30,
+  // it). Peaks at the top of the backswing, released by contact. 0 = the clip's
+  // own natural cock-back (extra recoil is layered ON TOP of it).
+  recoil: 0,
 
   // Torso counter-strike — as the knee drives forward the trunk bends forward
   // over the ball (deg of spine flexion). Keeps the ball down, adds power. Peaks
-  // at contact, eases through the follow-up.
-  torsoBend: 20,
+  // at contact, eases through the follow-up. 0 = the clip's own natural lean.
+  torsoBend: 0,
 
-  // Counter arm — the arm opposite the kicking leg. Starts stretched back & up
-  // during the run-up, swings with the shoulders/hips toward the kicking foot,
-  // and finishes pointing down & forward. 0 = off, 1 = full.
-  armSwing: 1.0,
+  // Counter arm — the arm opposite the kicking leg. When > 0 it REPLACES the
+  // clip's natural arm swing with a synthetic one (stretched back&up in the run-up
+  // → down&forward at the end). 0 = keep the clip's own natural arms.
+  armSwing: 0,
 
-  // §12 Whip — knee-extension drive (0..1) → strike power/velocity.
-  whip: 0.75,
+  // §12 Whip — extra knee-extension drive (0..1) layered on the clip's own strike.
+  // 0 = the clip's natural whip; turn up for a snappier/harder strike.
+  whip: 0,
 
   // Follow-up DIRECTION — where the ball goes (deg from straight-on toward the
   // NON-kicking foot). 0 = straight down the goal line; 90 = fully sideways. Sets
@@ -83,7 +90,8 @@ export const params = {
   source: 'procedural', // 'procedural' | 'authored' | 'mocap' (set at runtime)
   rootMotion: true, // apply an imported clip's root translation (locomotion)
   runupSteps: 2,    // procedural jog strides prepended before an imported clip (0–5)
-  runupAngle: 45,   // approach angle of the run-up (deg from straight-on, toward plant side)
+  runupAngle: 0,    // approach angle (deg from straight-on, toward plant side); 0 = the clip's straight run
+  lockGaze: false,  // when on, force the head to stay aimed at the ball until landing; off = the clip's natural head
 
   // Body-axis annotation lines (master toggle + per-axis).
   showAxes: true,

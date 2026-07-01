@@ -33,6 +33,12 @@ https://app.notion.com/p/a0290648726c4551b6901818d5a74070
 ## ✅ Live request checklist (keep this current; summarize done/missing every reply)
 
 **Done & deployed**
+- NATURAL BASE (important): every slider is now a DEVIATION from the clean mocap clip —
+  all default to neutral (tilt/recoil/torso/whip/armSwing/runupAngle = 0), so the default
+  animation IS the natural baked kick. The overrides were stacking on top of the clip and
+  making it hunched/unnatural; now you tweak UP from a natural base. Autosave bumped to v2
+  to drop old non-neutral saves. Lock-gaze & follow-body cross-over are opt-in (lock-gaze
+  toggle; cross-over couples to Hip Turn, 0 at the neutral 38°).
 - App + GitHub Pages deploy; headless preview loop (webm/screenshots).
 - Mixamo clip ingest (retarget + root motion); ball launches at calibrated contact.
 - Clean run-up (plays the clip's own baked run — no synthetic-jog skate).

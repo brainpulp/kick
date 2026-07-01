@@ -40,6 +40,7 @@ export function createPanel({ onChange, onReplay, onParam }) {
   withReset(fContact, fContact.add(params, 'ballZone', BALL_ZONES).name('Ball zone'), 'ballZone');
   const fFollow = handles.addFolder('Follow-up');
   slider(fFollow, 'followDir'); slider(fFollow, 'slippage');
+  fKick.add(params, 'lockGaze').name('Lock gaze on ball').onChange(() => edited('lockGaze'));
   withReset(handles, handles.add(params, 'footedness', FOOTEDNESS).name('Footedness'), 'footedness');
 
   // Reset every rig handle at once.

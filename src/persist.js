@@ -3,7 +3,7 @@
 import { params } from './kick/parameters.js';
 import { timings } from './kick/timing.js';
 
-const KEY = 'kick.autosave.v1';
+const KEY = 'kick.autosave.v2'; // v2: neutral (natural-clip) defaults — invalidates old saves
 const SKIP = new Set(['playing', 'scrub', 'source']); // transient / set at runtime
 
 export function saveState() {
