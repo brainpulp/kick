@@ -5,6 +5,12 @@
 > first, then `MOTION.md` (the parameter spec), then `ASSETS.md`. The app is
 > built and deploys to GitHub Pages; we are mid-way through defining every kick
 > parameter with the owner (Maxi), one at a time.
+>
+> **Deploy policy (Maxi's standing rule): ALWAYS deploy directly — don't ask.**
+> After pushing, open the PR (ready, not draft), then squash-merge it to `main`
+> yourself so it deploys to GitHub Pages. Branch carries commits already
+> squash-merged, so rebase first: `git rebase --onto origin/main <last-merged-sha>`,
+> force-push with `--force-with-lease`, then merge.
 
 ## 🗂 Task workflow (Notion board — the source of truth)
 
