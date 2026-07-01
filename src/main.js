@@ -310,7 +310,7 @@ function paramMoment(key) {
     case 'tilt': return timings.tilt.peak;
     case 'armSwing': return timings.arm.peak;
     case 'hop': return timings.hop.peak;
-    case 'followDir': case 'followStrength': case 'slippage': return mid;
+    case 'followDir': case 'slippage': return mid;
     case 'lockAnkle': case 'kneeAim': case 'hipTurn': case 'footZone': case 'ballZone': return c;
     case 'aimSupportDepth': case 'supportLateral': case 'supportPoint': return Math.max(0, c * 0.85); // the plant
     case 'runupAngle': case 'runupSteps': return Math.min(0.25, c * 0.5); // mid run-up
@@ -351,13 +351,15 @@ function applyFrame(tt) {
     editor.applyAt(tn);
   } else if (params.source === 'mocap' && mocapAvailable) {
     mocap.seek(tn);                       // baked clip...
+    if (!params.rawClip) {
     applyOverrides(bonesRef, restRef, params); // ...+ live parameter overrides
     applySupport(tn);                     // plant-foot stance (depth/lateral/point)
     applyRecoil(tn);                      // cock-back (pre-contact)
     applyWhip(tn);                        // strike: femur+knee drive, pelvis un-wind
     applyTorso(tn);                       // trunk counter-strike over the ball
     applyArms(tn);                        // counter-arm swing
-    applyFollowUp(tn);                     // follow-through sweep (post-contact)
+    applyFollowBody(tn);                   // follow-through: cross-over + shoulders turn to plant
+    }
     // Root motion: model faces -Z (rotation.y = PI) so negate clip X/Z; align
     // shift makes the strike foot meet the ball.
     const o = params.rootMotion ? mocap.rootOffset(tn) : null;
@@ -367,6 +369,7 @@ function applyFrame(tt) {
       mocapBase.z - (o ? o.z : 0) + mocapAlign.z,
     );
     groundModel();
+    if (!params.rawClip) {
     applyTilt(tn); // whole-body lean about the plant foot
     // Hop: a small forward skip onto the plant foot during the recoil, gone by
     // contact (so it never shifts the strike). Applied last so it isn't grounded.
@@ -376,6 +379,7 @@ function applyFrame(tt) {
     applySlippage(tn);   // lock/scale the plant-foot forward slide (0 = no slide)
     applyPlantPoint(tn); // aim the plant foot at the goal (Point deviates) — last
     applyGaze(tn);       // keep the head locked on the ball until landing
+    }
   } else if (params.source === 'authored' && editor && editor.keys.length) {
     editor.applyAt(tn);
   } else {
@@ -524,6 +528,7 @@ function gazeEnv(scrubN) {
   return 1 - _smooth((scrubN - 0.90) / 0.10); // release toward the goal after landing
 }
 function applyGaze(scrubN) {
+  if (!params.lockGaze) return; // off by default → the clip's own natural head motion
   const e = gazeEnv(scrubN);
   if (e < 0.01) return;
   const head = bonesRef.Head, neck = bonesRef.Neck; if (!head) return;
@@ -570,21 +575,35 @@ function applyRunupAngle(tn) {
 
 function followEnvelope(scrubN) { return env(scrubN, timings.follow); }
 
-// Follow-up = what the kicking leg does after contact. 100 = full follow-through
-// (the baked clip, leg follows the ball as far as it allows + slippage); 0 = the
-// leg relaxes back toward a normal standing pose. We pull the kicking leg toward
-// its rest pose by (1 − strength) after contact.
-function applyFollowUp(scrubN) {
-  const env = followEnvelope(scrubN);
-  if (env < 0.001) return;
-  const s = (params.followStrength ?? 100) / 100;  // 1 = full follow, 0 = relax
-  const relax = (1 - s) * env;
-  if (relax < 0.01) return;
+// Follow-up BODY: an EXAGGERATED follow-through layered on the clip's natural one —
+// after contact the whole body keeps turning toward the planting foot (shoulders/hips
+// continue to rotate) and the kicking leg swings up and ACROSS the midline, crossing
+// over the plant foot. Coupled to Hip Turn (as Maxi specified: follow-up couples to
+// hip rotation): at the neutral hip turn (38°) it contributes nothing, so the base is
+// the clip's own natural follow-through; more hip turn → more cross-over. Ramped by
+// the follow envelope. The player stays rooted (upper-body/leg crossing, no step).
+const _fbQuat = new THREE.Quaternion();
+const _fbEuler = new THREE.Euler();
+function applyFollowBody(scrubN) {
+  const k = Math.max(0, (params.hipTurn - 38)) / (60 - 38); // 0 at neutral → 1 at max hip turn
+  const amt = k * followEnvelope(scrubN);
+  if (amt < 0.01) return;
+  const mir = params.footedness === 'right' ? 1 : -1;
   const K = params.footedness === 'right' ? 'Right' : 'Left';
-  for (const name of [`${K}UpLeg`, `${K}Leg`, `${K}Foot`]) {
-    const b = bonesRef[name]; const r = restRef[name];
-    if (b && r) b.quaternion.slerp(r, relax);
-  }
+  const add = (name, x, y, z) => {
+    const b = bonesRef[name]; if (!b) return;
+    _fbEuler.set(x * DEG, y * DEG, z * DEG, 'XYZ');
+    b.quaternion.multiply(_fbQuat.setFromEuler(_fbEuler));
+  };
+  // Continue the un-wind toward the plant foot (same sense as the whip's pelvis
+  // un-wind), carrying the shoulders round — "shoulder axis keeps rotating".
+  add('Hips', 0, -amt * 22 * mir, 0);
+  add('Spine1', 0, -amt * 12 * mir, 0);
+  add('Spine2', 0, -amt * 12 * mir, 0);
+  // Kicking leg swings up and across the midline (cross-over over the plant foot):
+  // continued hip flexion + adduction swing toward the plant side.
+  add(`${K}UpLeg`, amt * 18, -amt * 28 * mir, 0);
+  add(`${K}Leg`, -amt * 10, 0, 0); // knee softens as the leg comes down to land
 }
 
 // Recoil timing envelope (0..1): the cock-back winds up through the recoil stage

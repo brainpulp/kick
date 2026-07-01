@@ -33,27 +33,37 @@ https://app.notion.com/p/a0290648726c4551b6901818d5a74070
 ## ✅ Live request checklist (keep this current; summarize done/missing every reply)
 
 **Done & deployed**
+- NATURAL BASE (important): every slider is now a DEVIATION from the clean mocap clip —
+  all default to neutral (tilt/recoil/torso/whip/armSwing/runupAngle = 0), so the default
+  animation IS the natural baked kick. The overrides were stacking on top of the clip and
+  making it hunched/unnatural; now you tweak UP from a natural base. Autosave bumped to v2
+  to drop old non-neutral saves. Lock-gaze & follow-body cross-over are opt-in (lock-gaze
+  toggle; cross-over couples to Hip Turn, 0 at the neutral 38°).
 - App + GitHub Pages deploy; headless preview loop (webm/screenshots).
 - Mixamo clip ingest (retarget + root motion); ball launches at calibrated contact.
 - Clean run-up (plays the clip's own baked run — no synthetic-jog skate).
 - Lighting/turf/pitch lines/cones; 3D gizmos + body-axis lines (toggle).
 - Per-control reset + reset-all; scenarios UI (local store).
 - Parameters wired: Tilt, Recoil, Hop (forward skip, fixed), Whip (femur+knee+pelvis un-wind),
-  Torso counter-strike, Knee-plumb range (−20…+10), Follow-up DIRECTION + STRENGTH,
+  Torso counter-strike, Knee-plumb range (−20…+10), Follow-up DIRECTION,
   Counter-arm (forward in run-up → back from end of recoil), Slippage (plant slide).
-- Removed Follow-Through power/control dropdown (covered by Follow-up strength).
+- Removed Follow-Through power/control dropdown AND Follow-up STRENGTH slider — the
+  follow-through is always full now (cross-over always on); slippage is the one knob on top.
 - ⏱ Timing editor (dopesheet: drag start/peak/end per effect).
 - View buttons (Front/Side/Top/Default).
 - Ball location fixed (anchors the KICKING foot to the ball at the true strike).
 - Gaze annotation from the eyes → ball.
 - Editing a parameter jumps the scrub to that parameter's moment.
 - Foot-skate reduced (root-travel scale tuned so the planted foot stays put).
+- Lock-gaze ANIMATION — head pinned to the ball through run-up until landing (~0.90), then releases.
+- Follow-up BODY — the (always-full) follow-through turns the shoulders/hips toward the plant
+  foot and swings the kicking leg up & ACROSS the midline (cross-over over the plant foot).
 
 **Missing / not yet done**
 - Run-up STEPS (1–5) + 45° approach ANGLE — controls exist but paused; need a dedicated
   run/locomotion clip (the kick clip can't supply variable straight/angled steps).
-- Lock-gaze ANIMATION — actually pin the head to the ball until landing (only the annotation does so now).
-- Follow-up BODY details — kicking leg crossing over the plant foot; weight transfer / landing on the kicking foot.
+- Follow-up landing — literal weight transfer / landing on the kicking foot (player stays
+  rooted; only the upper-body/leg cross-over is modelled, not a real forward step).
 - Contact zones — expand foot/ball parts + a contact annotation marking foot-point × ball-point.
 - Live tuning to confirm: pelvis un-wind direction, counter-arm extents, tilt direction, hop feel.
 - Later: populate real-kick scenarios (e.g. Caniggia vs River '92); Supabase backend.
