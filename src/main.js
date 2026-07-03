@@ -826,6 +826,28 @@ function calibrateMocap() {
   console.log(`[mocap] contactT=${mocapContactT.toFixed(3)} align=(${mocapAlign.x.toFixed(2)},${mocapAlign.z.toFixed(2)}) plantLock=(${mocapPlantLock.x.toFixed(2)},${mocapPlantLock.z.toFixed(2)}) bakedSlide=${mocapBakedSlide.toFixed(2)}m lift=${mocapPlantLift.toFixed(2)}`);
 }
 
+// Loop-wrap fade: the clip ends ~3.7 m downfield, so the reset back to the start
+// is a hard teleport. Fade the player out over the last beat and back in at the
+// start of the next loop so the jump happens while he's invisible.
+const FADE_S = 0.22;
+let fadeMats = null;
+function setModelFade(f) {
+  if (!mocapModel) return;
+  if (!fadeMats) {
+    fadeMats = [];
+    mocapModel.traverse((o) => {
+      if (!o.material) return;
+      for (const m of Array.isArray(o.material) ? o.material : [o.material]) fadeMats.push(m);
+    });
+  }
+  const solid = f >= 0.999;
+  for (const m of fadeMats) {
+    m.transparent = !solid;
+    m.opacity = solid ? 1 : f;
+    m.depthWrite = true;
+  }
+}
+
 const clock = new THREE.Clock();
 function animate() {
   requestAnimationFrame(animate);
@@ -833,6 +855,7 @@ function animate() {
 
   if (kick) {
     if (!params.playing) {
+      setModelFade(1);
       applyFrame(params.scrub * CLIP_END);            // paused: scrub the pose
     } else if (params.source === 'mocap' && mocapAvailable) {
       // Imported clip plays through directly: it is a seamless running loop with
@@ -847,6 +870,8 @@ function animate() {
       mocapPlayT += dt;
       if (mocapPlayT >= period) { mocapPlayT -= period; resetBall(); }
       const w = mocapPlayT - params.delay;
+      // Fade in at the top of the loop, out at the very end (covers the reset).
+      setModelFade(Math.min(mocapPlayT / FADE_S, Math.max(0, (period - mocapPlayT) / FADE_S), 1));
       if (w < 0) {                               // delay: hold on the first frame
         params.scrub = 0;
         applyFrame(0);
