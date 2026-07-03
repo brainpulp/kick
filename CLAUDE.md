@@ -39,6 +39,13 @@ https://app.notion.com/p/a0290648726c4551b6901818d5a74070
 ## ✅ Live request checklist (keep this current; summarize done/missing every reply)
 
 **Done & deployed**
+- REALISM PASS (frame-by-frame measured): the default now plays the mocap essentially
+  untouched. Slippage SCALES the clip's baked ~0.9 m plant slide (default 0.9 = natural;
+  0 pins the foot, offset persists after lift → no release snap). Removed the synthetic
+  hop; stance windows end at the measured foot-lift (~0.72); strike anchor sits behind
+  the ball so the instep meets the ball's rear surface at contact. Autosave v3.
+  The clip itself contains: approach stride → plant → strike → landing on the KICKING
+  foot → step-through (so "follow-up landing/weight transfer" is in the base now).
 - NATURAL BASE (important): every slider is now a DEVIATION from the clean mocap clip —
   all default to neutral (tilt/recoil/torso/whip/armSwing/runupAngle = 0), so the default
   animation IS the natural baked kick. The overrides were stacking on top of the clip and
