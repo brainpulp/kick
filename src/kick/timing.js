@@ -5,7 +5,6 @@
 // Defaults are anchored to the calibrated contact (~0.38) of the imported clip.
 export const timings = {
   recoil: { start: 0.30, peak: 0.35, end: 0.38, label: 'Recoil' },
-  hop:    { start: 0.29, peak: 0.35, end: 0.39, label: 'Hop' },
   whip:   { start: 0.34, peak: 0.39, end: 0.46, label: 'Whip' },
   torso:  { start: 0.32, peak: 0.38, end: 1.00, label: 'Torso' },
   tilt:   { start: 0.30, peak: 0.38, end: 1.00, label: 'Tilt' },

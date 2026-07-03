@@ -9,7 +9,7 @@ import { createTimeline } from './ui/timeline.js';
 import { createEnvTimeline } from './ui/envtimeline.js';
 import { createContactEditor } from './ui/contact.js';
 import { Annotations } from './ui/annotations.js';
-import { params } from './kick/parameters.js';
+import { params, DEFAULTS } from './kick/parameters.js';
 import { timings, env } from './kick/timing.js';
 import { BONES } from './character.js';
 import { loadExternalClip, retargetClip, MocapPlayer, applyOverrides } from './kick/mocap.js';
@@ -32,6 +32,9 @@ let mocap = null, mocapModel = null, mocapAvailable = false, mocapBase = null;
 let mocapAlign = { x: 0, z: 0 };  // shift so the strike foot meets the ball
 let mocapPlantLock = { x: 0, z: 0 }; // plant-foot world spot (slippage lock)
 let mocapPlantStart = 0.3;            // clip time the plant foot goes down
+let mocapPlantLift = 0.72;            // clip time the plant foot lifts for the step-through
+let mocapSlideEnd = { x: 0, z: 0 };   // the clip's total baked plant slide (vector)
+let mocapBakedSlide = 0;              // |mocapSlideEnd| (m); the natural slide amount
 let mocapContactT = 0.7;          // normalized clip time of ball contact
 let mocapPlayT = 0;               // wall-clock for mocap playback (incl. delay)
 let mocapBaseQuat = null;         // model's facing rotation (before tilt lean)
@@ -309,7 +312,6 @@ function paramMoment(key) {
     case 'torsoBend': return timings.torso.peak;
     case 'tilt': return timings.tilt.peak;
     case 'armSwing': return timings.arm.peak;
-    case 'hop': return timings.hop.peak;
     case 'followDir': case 'slippage': return mid;
     case 'lockAnkle': case 'kneeAim': case 'hipTurn': case 'footZone': case 'ballZone': return c;
     case 'aimSupportDepth': case 'supportLateral': case 'supportPoint': return Math.max(0, c * 0.85); // the plant
@@ -371,10 +373,6 @@ function applyFrame(tt) {
     groundModel();
     if (!params.rawClip) {
     applyTilt(tn); // whole-body lean about the plant foot
-    // Hop: a small forward skip onto the plant foot during the recoil, gone by
-    // contact (so it never shifts the strike). Applied last so it isn't grounded.
-    const he = env(tn, timings.hop);
-    if (he > 0.001) { mocapModel.position.z -= he * 0.05; mocapModel.position.y += he * 0.025; }
     applyRunupAngle(tn); // angle the approach (rotate the run about the ball)
     applySlippage(tn);   // lock/scale the plant-foot forward slide (0 = no slide)
     applyPlantPoint(tn); // aim the plant foot at the goal (Point deviates) — last
@@ -434,31 +432,29 @@ function applyTilt(scrubN) {
   mocapModel.quaternion.premultiply(_tiltQuat);
 }
 
-// Slippage: control the plant foot's forward slide during the follow-up. The
-// baked clip slides the planted foot ~0.9 m; we cancel that (foot-lock) and let
-// `slippage` (metres) dictate the actual slide. 0 = foot stays put; higher slides
-// forward. Translates the model to hold/advance the plant foot's world spot while
-// it's grounded, fading out as the foot lifts.
+// Slippage: SCALE the clip's baked plant-foot slide. The actor naturally slides
+// the planted foot ~0.9 m forward through the follow-through; the slider sets how
+// much of that happens (0 = foot pinned, default = the clip untouched, i.e. the
+// natural slide). Below-natural values shift the whole ending back by the removed
+// slide — a real "covered less ground" — with no release snap, since the offset
+// persists once the foot lifts (it resets with the loop).
 const _slPlant = new THREE.Vector3();
-function slipWindow(tn) {
-  const a = mocapPlantStart; // lock from the plant (no pre-contact slip)...
-  if (tn < a || tn > 0.90) return 0;
-  if (tn < a + 0.02) return _smooth((tn - a) / 0.02); // ease in at the plant
-  if (tn > 0.82) return 1 - _smooth((tn - 0.82) / 0.08); // fade out as the foot lifts
-  return 1;
-}
 function applySlippage(tn) {
-  const w = slipWindow(tn);
-  if (w < 0.001) return;
-  const S = params.footedness === 'right' ? 'Left' : 'Right'; // plant foot
-  const plant = bonesRef[`${S}ToeBase`] || bonesRef[`${S}Foot`]; if (!plant) return;
-  mocapModel.updateMatrixWorld(true);
-  plant.getWorldPosition(_slPlant);
-  const slide = (params.slippage || 0) * followEnvelope(tn); // desired forward slide (m, toward -Z)
-  const desX = mocapPlantLock.x;
-  const desZ = mocapPlantLock.z - slide;
-  mocapModel.position.x += (desX - _slPlant.x) * w;
-  mocapModel.position.z += (desZ - _slPlant.z) * w;
+  if (tn < mocapPlantStart || !mocapBakedSlide) return;
+  const k = (params.slippage ?? DEFAULTS.slippage) / (DEFAULTS.slippage || 1); // 1 = natural
+  if (Math.abs(1 - k) < 0.02) return;
+  let sx, sz; // the baked slide vector accumulated so far
+  if (tn <= mocapPlantLift) {
+    const S = params.footedness === 'right' ? 'Left' : 'Right'; // plant foot
+    const plant = bonesRef[`${S}ToeBase`] || bonesRef[`${S}Foot`]; if (!plant) return;
+    mocapModel.updateMatrixWorld(true);
+    plant.getWorldPosition(_slPlant);
+    sx = _slPlant.x - mocapPlantLock.x; sz = _slPlant.z - mocapPlantLock.z;
+  } else { // foot is airborne (step-through): hold the final offset, no snap-back
+    sx = mocapSlideEnd.x; sz = mocapSlideEnd.z;
+  }
+  mocapModel.position.x -= (1 - k) * sx;
+  mocapModel.position.z -= (1 - k) * sz;
 }
 
 // Plant (support) foot placement: nudge the support foot to a different stance
@@ -470,10 +466,13 @@ const _spEuler = new THREE.Euler();
 const _spAnk = new THREE.Vector3(), _spToe = new THREE.Vector3();
 const _spPQ = new THREE.Quaternion(), _spRy = new THREE.Quaternion(), _spCorr = new THREE.Quaternion();
 const _spYAxis = new THREE.Vector3(0, 1, 0);
+// Active only while the plant foot is truly planted (lands ~0.28, lifts ~0.72
+// for the step-through — measured from the clip), so the corrections never yaw
+// or shift a swinging foot.
 function supportEnv(tn) {
-  if (tn < 0.26 || tn > 0.92) return 0;
+  if (tn < 0.26 || tn > 0.76) return 0;
   if (tn < 0.36) return _smooth((tn - 0.26) / 0.10);
-  if (tn > 0.82) return 1 - _smooth((tn - 0.82) / 0.10);
+  if (tn > 0.66) return 1 - _smooth((tn - 0.66) / 0.10);
   return 1;
 }
 function applySupport(tn) {
@@ -780,7 +779,12 @@ function calibrateMocap() {
   // strikes it. The plant foot then lands wherever the clip places it — a
   // realistic plant-to-ball offset that comes straight from the mocap.
   const o = mocap.rootOffset(mocapContactT) || { x: 0, z: 0 };
-  mocapAlign = { x: o.x - fl[ci].x, z: o.z - fl[ci].z };
+  // Anchor slightly BEHIND the ball: the ankle sits back so the instep (mid-boot)
+  // meets the ball's rear surface instead of the ankle passing through its centre.
+  // A little residual overlap at the exact contact frame is right — a real strike
+  // compresses the ball.
+  const STRIKE_ANCHOR_Z = 0.06;
+  mocapAlign = { x: o.x - fl[ci].x, z: o.z - fl[ci].z + STRIKE_ANCHOR_Z };
   // Plant (support) foot world position at contact, in the RUNTIME frame — the
   // "locked" spot the foot should hold — captured at the PLANT moment (before
   // contact) so the foot doesn't slip in the lead-up to the strike; held through
@@ -794,8 +798,32 @@ function calibrateMocap() {
   mocapModel.updateMatrixWorld(true);
   const pl = plant ? plant.getWorldPosition(new THREE.Vector3()) : new THREE.Vector3();
   mocapPlantLock = { x: pl.x, z: pl.z };
+  // Measure the clip's BAKED plant-foot slide: the actor slides the plant foot
+  // forward through the follow-through (≈0.9 m in this clip) before lifting it
+  // for the step-through. The slippage slider SCALES this natural slide, so at
+  // the default the clip plays untouched. Track the plant toe from contact until
+  // it rises clear of the ground.
+  if (plant) {
+    const wp2 = new THREE.Vector3();
+    const y0 = pl.y;
+    let last = null;
+    for (let tn = mocapContactT; tn <= 0.95; tn += 0.01) {
+      const ro = mocap.rootOffset(tn) || { x: 0, z: 0 };
+      mocap.seek(tn);
+      mocapModel.position.set(mocapBase.x - ro.x + mocapAlign.x, mocapBase.y, mocapBase.z - ro.z + mocapAlign.z);
+      mocapModel.updateMatrixWorld(true);
+      plant.getWorldPosition(wp2);
+      mocapPlantLift = tn;
+      if (wp2.y > y0 + 0.06) break;
+      last = { x: wp2.x, z: wp2.z };
+    }
+    if (last) {
+      mocapSlideEnd = { x: last.x - mocapPlantLock.x, z: last.z - mocapPlantLock.z };
+      mocapBakedSlide = Math.hypot(mocapSlideEnd.x, mocapSlideEnd.z);
+    }
+  }
   // eslint-disable-next-line no-console
-  console.log(`[mocap] contactT=${mocapContactT.toFixed(3)} align=(${mocapAlign.x.toFixed(2)},${mocapAlign.z.toFixed(2)}) plantLock=(${mocapPlantLock.x.toFixed(2)},${mocapPlantLock.z.toFixed(2)})`);
+  console.log(`[mocap] contactT=${mocapContactT.toFixed(3)} align=(${mocapAlign.x.toFixed(2)},${mocapAlign.z.toFixed(2)}) plantLock=(${mocapPlantLock.x.toFixed(2)},${mocapPlantLock.z.toFixed(2)}) bakedSlide=${mocapBakedSlide.toFixed(2)}m lift=${mocapPlantLift.toFixed(2)}`);
 }
 
 const clock = new THREE.Clock();
