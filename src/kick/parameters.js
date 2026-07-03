@@ -69,10 +69,10 @@ export const params = {
   // the ball's launch azimuth.
   followDir: 0,
 
-  // Slippage — the plant foot leaves the ground and slides forward through the
-  // follow-up (metres). The follow-through itself is always full (the kicking leg
-  // follows the ball and crosses over); slippage is the one knob on top of it.
-  slippage: 0,
+  // Slippage — how far the plant foot slides forward through the follow-up
+  // (metres). The clip's natural baked slide is ~0.9 m, so 0.9 = the untouched
+  // natural motion; 0 pins the foot (the ending covers less ground).
+  slippage: 0.9,
 
   // playback
   playing: true,
