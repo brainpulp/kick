@@ -3,7 +3,7 @@
 import { params } from './kick/parameters.js';
 import { timings } from './kick/timing.js';
 
-const KEY = 'kick.autosave.v4'; // v4: TECHNIQUE Phase 1 — absolute IK-enforced plant/contact params
+const KEY = 'kick.autosave.v5'; // v5: TECHNIQUE Phase 2 — absolute trunk lean + hip line
 const SKIP = new Set(['playing', 'scrub', 'source']); // transient / set at runtime
 
 export function saveState() {

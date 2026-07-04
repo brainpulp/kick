@@ -31,8 +31,10 @@ export const params = {
   // 0 = the clip's own natural lean.
   tilt: 0,
 
-  // §5 Hip Turn — pelvic axial rotation toward target (deg) → core power.
-  hipTurn: 38,
+  // §5 Hip Turn — ABSOLUTE pelvis (hip-line) yaw at contact (deg; 0 = hips square
+  // to the goal, + = opened toward the kicking side). Enforced by the pelvis solve
+  // with hip/leg separation. Default overwritten with the value measured from the clip.
+  hipTurn: 20,
 
   // §8 Knee Aim — knee plumb vs ball centre at contact (cm), enforced via the
   // IK pole. + ahead of the ball = drives it low, − behind = lofted.
@@ -53,10 +55,10 @@ export const params = {
   // own natural cock-back (extra recoil is layered ON TOP of it).
   recoil: 0,
 
-  // Torso counter-strike — as the knee drives forward the trunk bends forward
-  // over the ball (deg of spine flexion). Keeps the ball down, adds power. Peaks
-  // at contact, eases through the follow-up. 0 = the clip's own natural lean.
-  torsoBend: 0,
+  // Trunk lean — ABSOLUTE forward flexion of the trunk at contact (deg from
+  // vertical; more = folded over the ball, keeps it down). Enforced by the spine
+  // solve. Default overwritten with the value measured from the clip.
+  torsoBend: 12,
 
   // Counter arm — the arm opposite the kicking leg. When > 0 it REPLACES the
   // clip's natural arm swing with a synthetic one (stretched back&up in the run-up
@@ -116,11 +118,11 @@ export const meta = {
   supportLateral: { min: 0, max: 45, step: 1, unit: 'cm', label: 'Plant toe lateral from ball' },
   supportPoint: { min: -45, max: 45, step: 1, unit: '°', label: 'Point (toe yaw, 0 = goal)' },
   tilt: { min: 0, max: 30, step: 1, unit: '°', label: 'Tilt (lean)' },
-  hipTurn: { min: 0, max: 60, step: 1, unit: '°', label: 'Hip Turn' },
+  hipTurn: { min: -10, max: 70, step: 1, unit: '°', label: 'Hip line (open at contact)' },
   kneeAim: { min: -20, max: 10, step: 1, unit: 'cm', label: 'Knee plumb (− behind / + ahead of ball)' },
   lockAnkle: { min: 0, max: 90, step: 1, unit: '°', label: 'Lock Ankle' },
   recoil: { min: 0, max: 60, step: 1, unit: '°', label: 'Recoil (cock-back)' },
-  torsoBend: { min: 0, max: 40, step: 1, unit: '°', label: 'Torso counter-strike' },
+  torsoBend: { min: -5, max: 45, step: 1, unit: '°', label: 'Trunk lean at contact' },
   armSwing: { min: 0, max: 1, step: 0.05, unit: '', label: 'Counter arm' },
   whip: { min: 0, max: 1, step: 0.01, unit: '', label: 'Whip (power)' },
   followDir: { min: 0, max: 90, step: 1, unit: '°', label: 'Follow-up direction (ball)' },

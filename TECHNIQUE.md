@@ -16,8 +16,17 @@
 > and seeded as defaults (fresh sessions), so untouched = the natural kick with
 > true numbers: depth 27 cm, lateral 12 cm, yaw −13°, lock 61°, knee −10 cm.
 > Verified: targets hit to ~1 mm / 0.001°; no per-frame position snaps beyond
-> the clip's own swing speeds. Next: Phase 2 (pelvis/trunk/gaze solve), then
-> the checkpoint TABLE editor (decision B).
+> the clip's own swing speeds.
+>
+> **Phase 2 (pelvis + trunk): SHIPPED.** `solveTrunkLean` + `solveHipYaw` in
+> ik.js. **Hip line** = absolute pelvis yaw at contact (0 = square to goal),
+> done with hip/leg separation so the feet stay planted; **Trunk lean** =
+> absolute forward flexion of pelvis→neck at contact. Both peak at contact
+> (recover through early follow), measured-from-clip defaults (trunk −15°,
+> hip 18°). Order matters: hip yaw before trunk lean (yaw rotates the spine).
+> Verified exact: trunk 30 → 29.8°, hip 45 → 45.0°, plant/ankle unaffected,
+> smooth. Gaze already exists as an absolute look-at (lockGaze toggle) — good
+> enough for now. Next: the checkpoint TABLE editor (decision B).
 
 ## Why the current approach can't teach
 
