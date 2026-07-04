@@ -115,13 +115,8 @@ export function applyOverrides(bones, rest, params) {
     const b = bones[name]; if (!b) return;
     b.quaternion.multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(x * DEG, y * DEG, z * DEG, 'XYZ')));
   };
-  // Hip turn: rotate the PELVIS (Hips yaw) relative to the 38° default, but
-  // counter-rotate the thighs about their long axis so the planted feet don't
-  // spin with it — real hip/leg separation, not a rigid whole-body turn.
-  const hipYaw = (params.hipTurn - 38) * 0.4 * mir;
-  add('Hips', 0, hipYaw, 0);
-  add('LeftUpLeg', 0, -hipYaw, 0);
-  add('RightUpLeg', 0, -hipYaw, 0);
+  // (Hip turn is now an ABSOLUTE pelvis-yaw constraint solved at contact in
+  //  main.js applyConstraints — no longer a constant nudge here.)
   // (Lock-ankle is now an ABSOLUTE constraint solved in main.js applyConstraints;
   //  tilt is a whole-body rigid lean about the plant foot — also in main.)
 }

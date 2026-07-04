@@ -9,6 +9,7 @@ const _t = new THREE.Vector3(), _u = new THREE.Vector3(), _w = new THREE.Vector3
 const _axis = new THREE.Vector3(), _n1 = new THREE.Vector3(), _n2 = new THREE.Vector3();
 const _q = new THREE.Quaternion(), _pq = new THREE.Quaternion(), _corr = new THREE.Quaternion();
 const _id = new THREE.Quaternion();
+const _Y0 = new THREE.Vector3(0, 1, 0);
 const clamp = (x, lo, hi) => Math.min(hi, Math.max(lo, x));
 
 // Apply a world-space rotation (axis, radians, scaled by weight) to a bone.
@@ -76,6 +77,47 @@ export function solveLeg({ model, hip, knee, ankle, target, pole = null, weight 
       rotBoneWorld(hip, _axis, ang, weight);
       model.updateMatrixWorld(true);
     }
+  }
+}
+
+// Absolute trunk forward-lean: rotate the spine chain so the root→tip vector
+// (pelvis→neck) sits at `pitchDeg` of forward flexion from vertical (0 = upright,
+// + = leaning toward the goal/-Z). The correction is distributed across `chain`
+// (lower spine leans most) and converged iteratively. Lateral axis = world X of
+// the pelvis frame, so lean is clean sagittal flexion regardless of hip yaw.
+const _lat = new THREE.Vector3(), _v = new THREE.Vector3();
+export function solveTrunkLean({ model, hips, chain, tip, pitchDeg, weight = 1 }) {
+  if (weight <= 0 || !hips || !tip || !chain || !chain.length) return;
+  const wsum = chain.reduce((a, b) => a + (b.w || 1), 0);
+  for (let it = 0; it < 10; it++) {
+    // Lateral (pitch) axis from the pelvis frame, recomputed as the chain moves.
+    _lat.set(1, 0, 0).applyQuaternion(hips.getWorldQuaternion(_pq)); _lat.y = 0; _lat.normalize();
+    hips.getWorldPosition(_a); tip.getWorldPosition(_b);
+    _v.copy(_b).sub(_a);
+    const lean = Math.atan2(-_v.z, _v.y) * 180 / Math.PI; // + = forward toward -Z
+    const err = (pitchDeg - lean) * Math.PI / 180 * weight;
+    if (Math.abs(err) < 0.001) break;
+    for (const b of chain) rotBoneWorld(b, _lat, err * ((b.w || 1) / wsum), 1);
+    model.updateMatrixWorld(true);
+  }
+}
+
+// Absolute pelvis (hip-line) yaw about vertical toward the target, WITHOUT moving
+// the legs: rotate the pelvis by the delta and counter-rotate both thighs by the
+// same amount (real hip/leg separation), so the feet stay put and the leg IK only
+// fine-tunes afterward. yawDeg: 0 = hip line square to the goal; + = opened toward
+// the kicking side. mir flips for left-footers.
+export function solveHipYaw({ model, hips, upLegs, leftHip, rightHip, yawDeg, mir = 1, weight = 1 }) {
+  if (weight <= 0 || !hips || !leftHip || !rightHip) return;
+  for (let it = 0; it < 2; it++) {
+    leftHip.getWorldPosition(_a); rightHip.getWorldPosition(_b);
+    _v.copy(_b).sub(_a); // left→right hip line
+    const yaw = Math.atan2(-_v.z * mir, _v.x * mir) * 180 / Math.PI; // 0 = square (line along X)
+    const err = (yawDeg - yaw) * Math.PI / 180 * weight * mir;
+    if (Math.abs(err) < 0.0015) break;
+    rotBoneWorld(hips, _Y0, err, 1);
+    for (const l of upLegs) rotBoneWorld(l, _Y0, -err, 1); // keep the legs planted
+    model.updateMatrixWorld(true);
   }
 }
 

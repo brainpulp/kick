@@ -15,7 +15,7 @@ import { BONES } from './character.js';
 import { loadExternalClip, retargetClip, MocapPlayer, applyOverrides } from './kick/mocap.js';
 import { scenarioStore, snapshot, applyScenario } from './scenarios.js';
 import { loadState, startAutosave } from './persist.js';
-import { solveLeg, solveFoot } from './kick/ik.js';
+import { solveLeg, solveFoot, solveTrunkLean, solveHipYaw } from './kick/ik.js';
 
 const SECONDS_FULL = 2.4; // wall-clock seconds for the whole 0..CLIP_END clip
 const GRAVITY = 9.81;
@@ -359,7 +359,6 @@ function applyFrame(tt) {
     applyOverrides(bonesRef, restRef, params); // ...+ live parameter overrides
     applyRecoil(tn);                      // cock-back (pre-contact)
     applyWhip(tn);                        // strike: femur+knee drive, pelvis un-wind
-    applyTorso(tn);                       // trunk counter-strike over the ball
     applyArms(tn);                        // counter-arm swing
     applyFollowBody(tn);                   // follow-through: cross-over + shoulders turn to plant
     }
@@ -491,6 +490,17 @@ function strikeEnv(tn) {
 // through the swing (which would drag the pelvis unnaturally).
 let kneeNatZ = 0;      // the clip's natural knee plumb z at contact (m)
 let kneeGain = 2.0;    // solved body-shift per metre of requested deviation
+let trunkNat = 0;      // clip's natural forward trunk lean at contact (deg)
+let hipNatDeg = 0;     // clip's natural pelvis (hip-line) yaw at contact (deg)
+
+// Trunk/hip constraints: a fold that ramps in over the strike and recovers
+// through the early follow-through — peaks at contact (the taught moment).
+function trunkEnv(tn) {
+  const c = mocapContactT;
+  if (tn < c - 0.12 || tn > c + 0.18) return 0;
+  if (tn < c) return _smooth((tn - (c - 0.12)) / 0.12);
+  return 1 - _smooth((tn - c) / 0.18);
+}
 
 function applyConstraints(tn) {
   if (!plantNat || !bonesRef) return;
@@ -498,6 +508,22 @@ function applyConstraints(tn) {
   const K = params.footedness === 'right' ? 'Right' : 'Left';
   const S = K === 'Right' ? 'Left' : 'Right';
   mocapModel.updateMatrixWorld(true);
+
+  // Trunk + pelvis, before the legs (hip yaw counter-rotates the thighs to keep
+  // the feet put; the leg IK then fine-tunes). Absolute angles, peaking at contact.
+  const wT = trunkEnv(tn);
+  if (wT > 0.001) {
+    // Hip yaw FIRST — it rotates the pelvis (and with it the whole spine), so the
+    // trunk lean is solved AFTER, on the already-yawed spine, and stays exact.
+    const upLegs = [bonesRef.LeftUpLeg, bonesRef.RightUpLeg].filter(Boolean);
+    if (bonesRef.Hips && bonesRef.LeftUpLeg && bonesRef.RightUpLeg) {
+      solveHipYaw({ model: mocapModel, hips: bonesRef.Hips, upLegs, leftHip: bonesRef.LeftUpLeg, rightHip: bonesRef.RightUpLeg, yawDeg: params.hipTurn ?? hipNatDeg, mir, weight: wT });
+    }
+    const spine = ['Spine', 'Spine1', 'Spine2'].map((n) => { const b = bonesRef[n]; if (b) b.w = 1; return b; }).filter(Boolean);
+    if (spine.length && bonesRef.Neck) {
+      solveTrunkLean({ model: mocapModel, hips: bonesRef.Hips, chain: spine, tip: bonesRef.Neck, pitchDeg: params.torsoBend ?? trunkNat, weight: wT });
+    }
+  }
 
   // Strike leg at contact — FIRST, because knee plumb is a BODY constraint:
   // with the ankle anchored on the ball, "knee over/behind the ball" is decided
@@ -621,7 +647,7 @@ function followEnvelope(scrubN) { return env(scrubN, timings.follow); }
 const _fbQuat = new THREE.Quaternion();
 const _fbEuler = new THREE.Euler();
 function applyFollowBody(scrubN) {
-  const k = Math.max(0, (params.hipTurn - 38)) / (60 - 38); // 0 at neutral → 1 at max hip turn
+  const k = Math.max(0, (params.hipTurn - hipNatDeg)) / Math.max(8, 60 - hipNatDeg); // 0 at natural → grows with extra hip opening
   const amt = k * followEnvelope(scrubN);
   if (amt < 0.01) return;
   const mir = params.footedness === 'right' ? 1 : -1;
@@ -691,25 +717,7 @@ function applyWhip(scrubN) {
   add('Hips', 0, -drive * 18 * mir, 0);   // pelvis un-winds toward the plant foot
 }
 
-// Torso counter-strike envelope (0..1): the trunk bends forward as the knee
-// drives in — ramps through the whip to peak at contact, then eases through the
-// follow-up (the player stays folded over the ball, recovering by the end).
-function torsoEnvelope(scrubN) { return env(scrubN, timings.torso); }
-
-// Forward trunk flexion over the ball, distributed across the spine chain.
-const _tbQuat = new THREE.Quaternion();
-const _tbEuler = new THREE.Euler();
-function applyTorso(scrubN) {
-  const deg = (params.torsoBend || 0) * torsoEnvelope(scrubN);
-  if (deg < 0.05) return;
-  // Fold the whole upper body over the ball: pelvis tip + spine + neck + head.
-  const parts = [['Hips', 0.15], ['Spine', 0.2], ['Spine1', 0.2], ['Spine2', 0.2], ['Neck', 0.15], ['Head', 0.1]];
-  for (const [name, f] of parts) {
-    const b = bonesRef[name]; if (!b) continue;
-    _tbEuler.set(deg * f * DEG, 0, 0, 'XYZ');
-    b.quaternion.multiply(_tbQuat.setFromEuler(_tbEuler));
-  }
-}
+// (Trunk lean is now an ABSOLUTE spine solve in applyConstraints — see ik.js.)
 
 // Counter arm (opposite the kicking leg). Driven off the REST pose and blended
 // in by `armSwing` — NOT added to the baked swing — so the motion is clean and
@@ -896,6 +904,16 @@ function calibrateMocap() {
     }
     if (kneeK2) kneeNat = -kneeK2.getWorldPosition(new THREE.Vector3()).z * 100; // + = ahead of the ball
     kneeNatZ = -kneeNat / 100; // world-z of the natural knee plumb at contact
+    // Trunk forward lean + pelvis (hip-line) yaw at contact — from the raw pose.
+    const hipsB = bonesRef.Hips, neckB = bonesRef.Neck, luB = bonesRef.LeftUpLeg, ruB = bonesRef.RightUpLeg;
+    if (hipsB && neckB) {
+      const h = hipsB.getWorldPosition(new THREE.Vector3()), nk = neckB.getWorldPosition(new THREE.Vector3());
+      trunkNat = Math.atan2(-(nk.z - h.z), nk.y - h.y) / DEG;
+    }
+    if (luB && ruB) {
+      const lu = luB.getWorldPosition(new THREE.Vector3()), ru = ruB.getWorldPosition(new THREE.Vector3());
+      hipNatDeg = Math.atan2(-(ru.z - lu.z) * mir2, (ru.x - lu.x) * mir2) / DEG;
+    }
     if (!hadSave) {
       const seed = {
         aimSupportDepth: Math.round(pl.z * 100),
@@ -903,13 +921,15 @@ function calibrateMocap() {
         supportPoint: Math.round(yawNat),
         lockAnkle: Math.round(pitchNat),
         kneeAim: Math.round(Math.min(10, Math.max(-20, kneeNat))),
+        torsoBend: Math.round(trunkNat),
+        hipTurn: Math.round(hipNatDeg),
       };
       Object.assign(params, seed);
       Object.assign(DEFAULTS, seed);
     }
   }
   // eslint-disable-next-line no-console
-  console.log(`[mocap] contactT=${mocapContactT.toFixed(3)} align=(${mocapAlign.x.toFixed(2)},${mocapAlign.z.toFixed(2)}) plantLock=(${mocapPlantLock.x.toFixed(2)},${mocapPlantLock.z.toFixed(2)}) bakedSlide=${mocapBakedSlide.toFixed(2)}m lift=${mocapPlantLift.toFixed(2)} natural: depth=${params.aimSupportDepth}cm lat=${params.supportLateral}cm yaw=${params.supportPoint}° lock=${params.lockAnkle}° kneeAim=${params.kneeAim}cm`);
+  console.log(`[mocap] contactT=${mocapContactT.toFixed(3)} align=(${mocapAlign.x.toFixed(2)},${mocapAlign.z.toFixed(2)}) plantLock=(${mocapPlantLock.x.toFixed(2)},${mocapPlantLock.z.toFixed(2)}) bakedSlide=${mocapBakedSlide.toFixed(2)}m lift=${mocapPlantLift.toFixed(2)} natural: depth=${params.aimSupportDepth}cm lat=${params.supportLateral}cm yaw=${params.supportPoint}° lock=${params.lockAnkle}° kneeAim=${params.kneeAim}cm trunk=${params.torsoBend}° hip=${params.hipTurn}°`);
 }
 
 // Loop-wrap fade: the clip ends ~3.7 m downfield, so the reset back to the start
