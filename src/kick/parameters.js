@@ -13,12 +13,14 @@ export const FOOTEDNESS = ['right', 'left'];
 export const params = {
   footedness: 'right',
 
-  // Plant (support) foot placement — 3 DOF, relative to the ball:
-  //  depth   = how far BEHIND the ball (cm); more = more hip room → loft/power,
-  //  lateral = how far to the SIDE of the ball (cm), + = wider toward plant side,
-  //  point   = toe yaw (deg); point off the goal to add effect/curl.
-  aimSupportDepth: 12,
-  supportLateral: 0,
+  // Plant (support) foot placement — 3 DOF, ABSOLUTE and ball-relative,
+  // enforced exactly by leg IK during the stance (TECHNIQUE.md Phase 1):
+  //  depth   = plant TOE distance behind the ball centre (cm),
+  //  lateral = plant TOE distance to the side of the ball (cm, toward plant side),
+  //  point   = toe yaw (deg); 0 = pointing at the goal.
+  // Defaults are overwritten at load with the values MEASURED from the clip.
+  aimSupportDepth: 20,
+  supportLateral: 12,
   supportPoint: 0,
 
   // NOTE: the base animation is a full, natural mocap kick. Every slider below is a
@@ -32,11 +34,12 @@ export const params = {
   // §5 Hip Turn — pelvic axial rotation toward target (deg) → core power.
   hipTurn: 38,
 
-  // §8 Knee Aim — knee horizontal offset vs ball center (cm). + ahead = low,
-  // - behind = lofted.
+  // §8 Knee Aim — knee plumb vs ball centre at contact (cm), enforced via the
+  // IK pole. + ahead of the ball = drives it low, − behind = lofted.
   kneeAim: 0,
 
-  // §7 Lock Ankle — plantarflexion of the kicking ankle (deg) → contact surface.
+  // §7 Lock Ankle — ABSOLUTE plantarflexion of the kicking ankle at contact
+  // (deg; + = toe pointed down). Enforced exactly in the strike window.
   lockAnkle: 25,
 
   // §10 Points — contact geometry.
@@ -109,9 +112,9 @@ export const DEFAULTS = { ...params };
 export const meta = {
   runupAngle: { min: 0, max: 90, step: 1, unit: '°', label: 'Approach angle' },
   runupSteps: { min: 0, max: 5, step: 1, unit: '', label: 'Steps (needs run clip)' },
-  aimSupportDepth: { min: 0, max: 25, step: 1, unit: 'cm', label: 'Depth behind ball' },
-  supportLateral: { min: -15, max: 15, step: 1, unit: 'cm', label: 'Lateral from ball' },
-  supportPoint: { min: -30, max: 30, step: 1, unit: '°', label: 'Point (toe yaw)' },
+  aimSupportDepth: { min: -10, max: 45, step: 1, unit: 'cm', label: 'Plant toe depth behind ball' },
+  supportLateral: { min: 0, max: 45, step: 1, unit: 'cm', label: 'Plant toe lateral from ball' },
+  supportPoint: { min: -45, max: 45, step: 1, unit: '°', label: 'Point (toe yaw, 0 = goal)' },
   tilt: { min: 0, max: 30, step: 1, unit: '°', label: 'Tilt (lean)' },
   hipTurn: { min: 0, max: 60, step: 1, unit: '°', label: 'Hip Turn' },
   kneeAim: { min: -20, max: 10, step: 1, unit: 'cm', label: 'Knee plumb (− behind / + ahead of ball)' },

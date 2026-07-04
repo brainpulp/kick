@@ -122,8 +122,6 @@ export function applyOverrides(bones, rest, params) {
   add('Hips', 0, hipYaw, 0);
   add('LeftUpLeg', 0, -hipYaw, 0);
   add('RightUpLeg', 0, -hipYaw, 0);
-  // Lock-ankle (foot plantarflexion, X) relative to 25°.
-  const K = params.footedness === 'right' ? 'Right' : 'Left';
-  add(`${K}Foot`, (params.lockAnkle - 25) * 0.6, 0, 0);
-  // (Tilt is a whole-body rigid lean about the plant foot — handled in main.)
+  // (Lock-ankle is now an ABSOLUTE constraint solved in main.js applyConstraints;
+  //  tilt is a whole-body rigid lean about the plant foot — also in main.)
 }

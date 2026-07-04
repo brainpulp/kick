@@ -15,6 +15,7 @@ import { BONES } from './character.js';
 import { loadExternalClip, retargetClip, MocapPlayer, applyOverrides } from './kick/mocap.js';
 import { scenarioStore, snapshot, applyScenario } from './scenarios.js';
 import { loadState, startAutosave } from './persist.js';
+import { solveLeg, solveFoot } from './kick/ik.js';
 
 const SECONDS_FULL = 2.4; // wall-clock seconds for the whole 0..CLIP_END clip
 const GRAVITY = 9.81;
@@ -161,7 +162,7 @@ loadCharacter(scene).then(({ model, bones, rest }) => {
   }
 
   params.source = 'authored'; // default to the shared keyframe clip (until an import loads)
-  loadState();                // restore saved parameter + timing adjustments
+  hadSave = loadState();      // restore saved parameter + timing adjustments
   startAutosave();            // and keep saving them across reloads
   const gui = createPanel({
     onChange: () => { if (!params.playing) applyFrame(params.scrub * CLIP_END); },
@@ -292,6 +293,7 @@ loadCharacter(scene).then(({ model, bones, rest }) => {
       bones, rest, camera, controls, params, editor, kick, gizmo, scene, THREE, mocap,
       mocapLib: { retargetClip, MocapPlayer, applyOverrides },
       frame(s) { params.playing = false; params.scrub = s; applyFrame(s * CLIP_END); },
+      get contactT() { return mocapContactT; },
       view(px, py, pz, tx, ty, tz) {
         camera.position.set(px, py, pz); controls.target.set(tx, ty, tz); controls.update();
       },
@@ -355,7 +357,6 @@ function applyFrame(tt) {
     mocap.seek(tn);                       // baked clip...
     if (!params.rawClip) {
     applyOverrides(bonesRef, restRef, params); // ...+ live parameter overrides
-    applySupport(tn);                     // plant-foot stance (depth/lateral/point)
     applyRecoil(tn);                      // cock-back (pre-contact)
     applyWhip(tn);                        // strike: femur+knee drive, pelvis un-wind
     applyTorso(tn);                       // trunk counter-strike over the ball
@@ -375,7 +376,7 @@ function applyFrame(tt) {
     applyTilt(tn); // whole-body lean about the plant foot
     applyRunupAngle(tn); // angle the approach (rotate the run about the ball)
     applySlippage(tn);   // lock/scale the plant-foot forward slide (0 = no slide)
-    applyPlantPoint(tn); // aim the plant foot at the goal (Point deviates) — last
+    applyConstraints(tn); // TECHNIQUE checkpoints: exact leg constraints — last
     applyGaze(tn);       // keep the head locked on the ball until landing
     }
   } else if (params.source === 'authored' && editor && editor.keys.length) {
@@ -457,60 +458,96 @@ function applySlippage(tn) {
   mocapModel.position.z -= (1 - k) * sz;
 }
 
-// Plant (support) foot placement: nudge the support foot to a different stance
-// while the body stays put (the kicking foot stays on the ball). Approximated by
-// rotating the support hip (depth back/forward, lateral in/out) + foot yaw
-// (point), ramped over the plant window. ~0.73°/cm at this leg length.
-const _spQuat = new THREE.Quaternion();
-const _spEuler = new THREE.Euler();
-const _spAnk = new THREE.Vector3(), _spToe = new THREE.Vector3();
-const _spPQ = new THREE.Quaternion(), _spRy = new THREE.Quaternion(), _spCorr = new THREE.Quaternion();
-const _spYAxis = new THREE.Vector3(0, 1, 0);
-// Active only while the plant foot is truly planted (lands ~0.28, lifts ~0.72
-// for the step-through — measured from the clip), so the corrections never yaw
-// or shift a swinging foot.
-function supportEnv(tn) {
-  if (tn < 0.26 || tn > 0.76) return 0;
-  if (tn < 0.36) return _smooth((tn - 0.26) / 0.10);
-  if (tn > 0.66) return 1 - _smooth((tn - 0.66) / 0.10);
+// ---- TECHNIQUE checkpoints, Phase 1 (see TECHNIQUE.md): exact leg constraints.
+// Sliders are ABSOLUTE ball-relative measurements, enforced by IK every frame —
+// not nudges on the clip. Natural values are measured from the clip at
+// calibration and become the defaults, so the untouched state still looks like
+// the real kick while every number is now exact and independently adjustable.
+let plantNat = null;   // measured natural plant: { toeY }
+let hadSave = false;   // did a saved parameter set exist (skip default seeding)
+const _ctToe = new THREE.Vector3(), _ctAnk = new THREE.Vector3();
+const _ctTarget = new THREE.Vector3(), _ctPole = new THREE.Vector3();
+
+// Plant-foot hold: from the plant landing through just past contact. After that
+// the clip's slide / step-through takes over (slippage governs the slide).
+function plantEnv(tn) {
+  const a = 0.26, c = mocapContactT;
+  if (tn < a || tn > c + 0.10) return 0;
+  if (tn < a + 0.08) return _smooth((tn - a) / 0.08);
+  if (tn > c + 0.04) return 1 - _smooth((tn - (c + 0.04)) / 0.06);
   return 1;
 }
-function applySupport(tn) {
-  const e = supportEnv(tn);
-  if (e < 0.01) return;
-  const S = params.footedness === 'right' ? 'Left' : 'Right'; // plant foot
-  const mir = params.footedness === 'right' ? 1 : -1;
-  const depthDeg = -((params.aimSupportDepth || 0) - 12) * 0.73 * e; // behind ball → thigh back
-  const latDeg = (params.supportLateral || 0) * 0.73 * e;            // + = wider toward plant side
-  const ptDeg = (params.supportPoint || 0) * e;                      // toe yaw
-  const add = (name, x, y, z) => {
-    const b = bonesRef[name]; if (!b) return;
-    _spEuler.set(x * DEG, y * DEG, z * DEG, 'XYZ');
-    b.quaternion.multiply(_spQuat.setFromEuler(_spEuler));
-  };
-  add(`${S}UpLeg`, depthDeg, 0, mir * latDeg);  // sagittal = depth, lateral = sideways
+// Strike-leg constraints peak EXACTLY at contact and blend around it — a
+// triangle, not a hold: knee plumb / ankle lock are contact-instant teaching
+// measurements, and holding them over a window would brake the natural whip.
+function strikeEnv(tn) {
+  const c = mocapContactT, w = 0.045;
+  if (tn < c - w || tn > c + w) return 0;
+  return _smooth(1 - Math.abs(tn - c) / w);
 }
+// Knee-plumb enforcement is a BODY shift (see applyConstraints). The exact
+// shift is solved iteratively at the peak frame and cached (with its gain) so
+// the ramp frames feather the same shift instead of chasing a fixed plumb
+// through the swing (which would drag the pelvis unnaturally).
+let kneeNatZ = 0;      // the clip's natural knee plumb z at contact (m)
+let kneeGain = 2.0;    // solved body-shift per metre of requested deviation
 
-// Plant foot points at the GOAL (-Z) by default; the Point param yaws it off that
-// (open the foot to add effect). Runs LAST so it accounts for the whole-body tilt
-// and run-up rotations, correcting the foot's final world heading.
-function applyPlantPoint(tn) {
-  const e = supportEnv(tn);
-  if (e < 0.01) return;
-  const S = params.footedness === 'right' ? 'Left' : 'Right';
+function applyConstraints(tn) {
+  if (!plantNat || !bonesRef) return;
   const mir = params.footedness === 'right' ? 1 : -1;
-  const foot = bonesRef[`${S}Foot`], toeB = bonesRef[`${S}ToeBase`];
-  if (!foot || !toeB) return;
+  const K = params.footedness === 'right' ? 'Right' : 'Left';
+  const S = K === 'Right' ? 'Left' : 'Right';
   mocapModel.updateMatrixWorld(true);
-  foot.getWorldPosition(_spAnk); toeB.getWorldPosition(_spToe);
-  const heading = Math.atan2(_spToe.x - _spAnk.x, -(_spToe.z - _spAnk.z)); // 0 = facing the goal
-  const desired = (params.supportPoint || 0) * DEG * mir;                   // 0 = at goal
-  const delta = (desired - heading) * e;
-  if (Math.abs(delta) < 0.002) return;
-  foot.parent.getWorldQuaternion(_spPQ);
-  _spRy.setFromAxisAngle(_spYAxis, delta);
-  _spCorr.copy(_spPQ).invert().multiply(_spRy).multiply(_spPQ); // parent⁻¹·Ry·parent
-  foot.quaternion.premultiply(_spCorr);
+
+  // Strike leg at contact — FIRST, because knee plumb is a BODY constraint:
+  // with the ankle anchored on the ball, "knee over/behind the ball" is decided
+  // by where the pelvis is, so we shift the model fore/aft until the knee plumb
+  // lands at kneeAim, re-solving the ankle back onto the ball each step.
+  const wK = strikeEnv(tn);
+  const hipK = bonesRef[`${K}UpLeg`], kneeK = bonesRef[`${K}Leg`], ankK = bonesRef[`${K}Foot`], toeK = bonesRef[`${K}ToeBase`];
+  if (wK > 0.001 && hipK && kneeK && ankK) {
+    const desiredZ = -(params.kneeAim || 0) / 100;   // + ahead of the ball = -Z
+    const dev = desiredZ - kneeNatZ;                 // requested deviation from the clip
+    if (Math.abs(dev) > 0.002) {
+      ankK.getWorldPosition(_ctAnk);                 // the ball-anchored ankle path (fixed)
+      if (wK > 0.995) {                              // peak frame: solve exactly, learn the gain
+        let total = 0;
+        for (let it = 0; it < 4; it++) {
+          kneeK.getWorldPosition(_ctPole);
+          const err = desiredZ - _ctPole.z;
+          if (Math.abs(err) < 0.003) break;
+          mocapModel.position.z += err; total += err;
+          mocapModel.updateMatrixWorld(true);
+          solveLeg({ model: mocapModel, hip: hipK, knee: kneeK, ankle: ankK, target: _ctTarget.copy(_ctAnk), weight: 1 });
+        }
+        if (Math.abs(dev) > 0.01) kneeGain = total / dev;
+      } else {                                       // ramp frames: feather the solved shift
+        mocapModel.position.z += kneeGain * dev * wK;
+        mocapModel.updateMatrixWorld(true);
+        solveLeg({ model: mocapModel, hip: hipK, knee: kneeK, ankle: ankK, target: _ctTarget.copy(_ctAnk), weight: 1 });
+      }
+    }
+    solveFoot({ model: mocapModel, foot: ankK, toe: toeK, pitchDeg: params.lockAnkle ?? 25, weight: wK });
+  }
+
+  // Plant (support) leg AFTER the body shift: toe held at the exact
+  // ball-relative point; foot yaw absolute (0° = pointing at the goal).
+  const wP = plantEnv(tn);
+  const hipS = bonesRef[`${S}UpLeg`], kneeS = bonesRef[`${S}Leg`], ankS = bonesRef[`${S}Foot`], toeS = bonesRef[`${S}ToeBase`];
+  if (wP > 0.001 && hipS && kneeS && ankS && toeS) {
+    const depth = (params.aimSupportDepth ?? 20) / 100;  // + = behind the ball (+Z)
+    const lat = (params.supportLateral ?? 12) / 100;     // + = toward the plant side
+    for (let it = 0; it < 2; it++) {
+      toeS.getWorldPosition(_ctToe); ankS.getWorldPosition(_ctAnk);
+      _ctTarget.set(
+        -mir * lat - (_ctToe.x - _ctAnk.x),
+        plantNat.toeY - (_ctToe.y - _ctAnk.y),
+        depth - (_ctToe.z - _ctAnk.z),
+      );
+      solveLeg({ model: mocapModel, hip: hipS, knee: kneeS, ankle: ankS, target: _ctTarget, weight: wP });
+      solveFoot({ model: mocapModel, foot: ankS, toe: toeS, yawDeg: (params.supportPoint || 0) * mir, weight: wP });
+    }
+  }
 }
 
 // Lock gaze: the head stays aimed at the ball from the run-up through landing,
@@ -803,9 +840,21 @@ function calibrateMocap() {
   // for the step-through. The slippage slider SCALES this natural slide, so at
   // the default the clip plays untouched. Track the plant toe from contact until
   // it rises clear of the ground.
+  // (Calibration frames are NOT ground-corrected, so all heights below are taken
+  // relative to the frame's own lowest foot bone — the same reference
+  // groundModel uses at runtime.)
+  const _fmy = new THREE.Vector3();
+  const frameMinY = () => {
+    let m = Infinity;
+    for (const n of ['LeftToeBase', 'RightToeBase', 'LeftFoot', 'RightFoot']) {
+      const b = bonesRef[n]; if (!b) continue;
+      b.getWorldPosition(_fmy); if (_fmy.y < m) m = _fmy.y;
+    }
+    return m === Infinity ? 0 : m;
+  };
+  const plantRelY = pl.y - frameMinY(); // plant-toe height above the sole plane
   if (plant) {
     const wp2 = new THREE.Vector3();
-    const y0 = pl.y;
     let last = null;
     for (let tn = mocapContactT; tn <= 0.95; tn += 0.01) {
       const ro = mocap.rootOffset(tn) || { x: 0, z: 0 };
@@ -814,7 +863,7 @@ function calibrateMocap() {
       mocapModel.updateMatrixWorld(true);
       plant.getWorldPosition(wp2);
       mocapPlantLift = tn;
-      if (wp2.y > y0 + 0.06) break;
+      if (wp2.y - frameMinY() > plantRelY + 0.06) break;
       last = { x: wp2.x, z: wp2.z };
     }
     if (last) {
@@ -822,8 +871,45 @@ function calibrateMocap() {
       mocapBakedSlide = Math.hypot(mocapSlideEnd.x, mocapSlideEnd.z);
     }
   }
+  // Measure the clip's natural checkpoint values and seed them as the defaults
+  // (fresh sessions only) — so the untouched state IS the natural kick, but every
+  // number is now an exact, enforced, ball-relative measurement (TECHNIQUE.md).
+  plantNat = { toeY: plantRelY + 0.02 }; // grounded height (groundModel rests soles at 0.02)
+  {
+    const mir2 = K === 'Right' ? 1 : -1;
+    const ankS = bonesRef[`${S}Foot`];
+    mocap.seek(mocapPlantStart);
+    const op2 = mocap.rootOffset(mocapPlantStart) || { x: 0, z: 0 };
+    mocapModel.position.set(mocapBase.x - op2.x + mocapAlign.x, mocapBase.y, mocapBase.z - op2.z + mocapAlign.z);
+    mocapModel.updateMatrixWorld(true);
+    const pa = ankS ? ankS.getWorldPosition(new THREE.Vector3()) : pl;
+    const yawNat = Math.atan2(pl.x - pa.x, -(pl.z - pa.z)) / DEG * mir2; // 0 = at the goal
+    const oc = mocap.rootOffset(mocapContactT) || { x: 0, z: 0 };
+    mocap.seek(mocapContactT);
+    mocapModel.position.set(mocapBase.x - oc.x + mocapAlign.x, mocapBase.y, mocapBase.z - oc.z + mocapAlign.z);
+    mocapModel.updateMatrixWorld(true);
+    const ankK = bonesRef[`${K}Foot`], toeK = bonesRef[`${K}ToeBase`], kneeK2 = bonesRef[`${K}Leg`];
+    let pitchNat = 25, kneeNat = 0;
+    if (ankK && toeK) {
+      const a2 = ankK.getWorldPosition(new THREE.Vector3()), t2 = toeK.getWorldPosition(new THREE.Vector3());
+      pitchNat = Math.atan2(-(t2.y - a2.y), Math.hypot(t2.x - a2.x, t2.z - a2.z)) / DEG;
+    }
+    if (kneeK2) kneeNat = -kneeK2.getWorldPosition(new THREE.Vector3()).z * 100; // + = ahead of the ball
+    kneeNatZ = -kneeNat / 100; // world-z of the natural knee plumb at contact
+    if (!hadSave) {
+      const seed = {
+        aimSupportDepth: Math.round(pl.z * 100),
+        supportLateral: Math.round(-mir2 * pl.x * 100),
+        supportPoint: Math.round(yawNat),
+        lockAnkle: Math.round(pitchNat),
+        kneeAim: Math.round(Math.min(10, Math.max(-20, kneeNat))),
+      };
+      Object.assign(params, seed);
+      Object.assign(DEFAULTS, seed);
+    }
+  }
   // eslint-disable-next-line no-console
-  console.log(`[mocap] contactT=${mocapContactT.toFixed(3)} align=(${mocapAlign.x.toFixed(2)},${mocapAlign.z.toFixed(2)}) plantLock=(${mocapPlantLock.x.toFixed(2)},${mocapPlantLock.z.toFixed(2)}) bakedSlide=${mocapBakedSlide.toFixed(2)}m lift=${mocapPlantLift.toFixed(2)}`);
+  console.log(`[mocap] contactT=${mocapContactT.toFixed(3)} align=(${mocapAlign.x.toFixed(2)},${mocapAlign.z.toFixed(2)}) plantLock=(${mocapPlantLock.x.toFixed(2)},${mocapPlantLock.z.toFixed(2)}) bakedSlide=${mocapBakedSlide.toFixed(2)}m lift=${mocapPlantLift.toFixed(2)} natural: depth=${params.aimSupportDepth}cm lat=${params.supportLateral}cm yaw=${params.supportPoint}° lock=${params.lockAnkle}° kneeAim=${params.kneeAim}cm`);
 }
 
 // Loop-wrap fade: the clip ends ~3.7 m downfield, so the reset back to the start

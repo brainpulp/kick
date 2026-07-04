@@ -1,7 +1,23 @@
 # TECHNIQUE.md — the pose-constraint architecture (the rethink)
 
-> Status: PROPOSED — awaiting Maxi's approval. This replaces the "mocap clip +
-> additive slider offsets" model as the source of truth for the kick.
+> Status: APPROVED by Maxi (2026-07-03) — decisions: A = LOW default mocap
+> influence (clinical constraint pose; mocap only seasons); B = always-visible
+> checkpoint TABLE editor; C = fix control first, keep T-P for now.
+> This replaces the "mocap clip + additive slider offsets" model as the source
+> of truth for the kick.
+>
+> **Phase 1 (leg IK core): SHIPPED.** `src/kick/ik.js` (analytic two-bone leg
+> IK + absolute foot yaw/pitch solve) + `applyConstraints()` in main.js.
+> Plant depth/lateral/point are exact ball-relative toe measurements enforced
+> through the stance; lock-ankle is absolute plantarflexion and knee-plumb is
+> solved as a BODY shift, both peaking exactly at contact (triangle envelope —
+> holding them through a window would brake the natural whip; learned gain
+> feathers the ramps). Natural values are MEASURED from the clip at calibration
+> and seeded as defaults (fresh sessions), so untouched = the natural kick with
+> true numbers: depth 27 cm, lateral 12 cm, yaw −13°, lock 61°, knee −10 cm.
+> Verified: targets hit to ~1 mm / 0.001°; no per-frame position snaps beyond
+> the clip's own swing speeds. Next: Phase 2 (pelvis/trunk/gaze solve), then
+> the checkpoint TABLE editor (decision B).
 
 ## Why the current approach can't teach
 
