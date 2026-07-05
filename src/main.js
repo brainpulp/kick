@@ -8,6 +8,8 @@ import { PoseEditor, buildEditorGUI, attachGizmo, KEY_DEFS } from './ui/editor.j
 import { createTimeline } from './ui/timeline.js';
 import { createEnvTimeline } from './ui/envtimeline.js';
 import { createContactEditor } from './ui/contact.js';
+import { createCheckpoints } from './ui/checkpoints.js';
+import { FOOT_ZONES, BALL_ZONES, meta } from './kick/parameters.js';
 import { Annotations } from './ui/annotations.js';
 import { params, DEFAULTS } from './kick/parameters.js';
 import { timings, env } from './kick/timing.js';
@@ -28,7 +30,7 @@ if (buildEl) buildEl.textContent = `build ${__BUILD__}`;
 const { renderer, labelRenderer, scene, camera, controls } = createScene();
 const { ball } = createField(scene);
 
-let kick = null, annotations = null, editor = null, gizmo = null, timeline = null, envtl = null, contact = null;
+let kick = null, annotations = null, editor = null, gizmo = null, timeline = null, envtl = null, contact = null, cptbl = null;
 let mocap = null, mocapModel = null, mocapAvailable = false, mocapBase = null;
 let mocapAlign = { x: 0, z: 0 };  // shift so the strike foot meets the ball
 let mocapPlantLock = { x: 0, z: 0 }; // plant-foot world spot (slippage lock)
@@ -204,6 +206,14 @@ loadCharacter(scene).then(({ model, bones, rest }) => {
     getScrub: () => params.scrub,
     getContact: () => (mocapAvailable ? mocapContactT : null),
   });
+  cptbl = createCheckpoints({
+    params, meta, checkpoints: CHECKPOINTS, enums: { footZone: FOOT_ZONES, ballZone: BALL_ZONES },
+    onEdit: (k, v) => { params[k] = v; gui.controllersRecursive().forEach((c) => c.updateDisplay()); if (!params.playing) applyFrame(params.scrub * CLIP_END); },
+    onJump: (t) => { params.playing = false; params.scrub = t; applyFrame(t * CLIP_END); },
+    measure: measureConstraint,
+    getScrub: () => params.scrub,
+    getContactT: () => (mocapAvailable ? mocapContactT : 0.375),
+  });
   // Single consolidated timeline: the dopesheet is shown by default and the old
   // keyframe-editor bar stays hidden (authoring uses the editor directly).
   envtl.setVisible(true);
@@ -294,6 +304,7 @@ loadCharacter(scene).then(({ model, bones, rest }) => {
       mocapLib: { retargetClip, MocapPlayer, applyOverrides },
       frame(s) { params.playing = false; params.scrub = s; applyFrame(s * CLIP_END); },
       get contactT() { return mocapContactT; },
+      measure: measureConstraint,
       view(px, py, pz, tx, ty, tz) {
         camera.position.set(px, py, pz); controls.target.set(tx, ty, tz); controls.update();
       },
@@ -500,6 +511,40 @@ function trunkEnv(tn) {
   if (tn < c - 0.12 || tn > c + 0.18) return 0;
   if (tn < c) return _smooth((tn - (c - 0.12)) / 0.12);
   return 1 - _smooth((tn - c) / 0.18);
+}
+
+// The teaching checkpoints (TECHNIQUE.md) and which exact constraints each owns.
+// tAt(c) resolves the moment from the calibrated contact time c.
+const CHECKPOINTS = [
+  { key: 'approach', label: '1 · Approach', tAt: () => 0.15, fields: ['runupAngle'] },
+  { key: 'plant', label: '2 · Plant', tAt: (c) => 0.80 * c, fields: ['aimSupportDepth', 'supportLateral', 'supportPoint'] },
+  { key: 'backswing', label: '3 · Backswing top', tAt: (c) => Math.max(0, c - 0.04), fields: ['recoil'] },
+  { key: 'contact', label: '4 · Contact', tAt: (c) => c, fields: ['hipTurn', 'torsoBend', 'kneeAim', 'lockAnkle', 'tilt', 'whip', 'footZone', 'ballZone'] },
+  { key: 'follow', label: '5 · Follow-through', tAt: (c) => Math.min(1, c + 0.18), fields: ['followDir'] },
+  { key: 'landing', label: '6 · Landing', tAt: (c) => Math.min(1, c + 0.34), fields: ['slippage'] },
+];
+
+// Live measurement of a constraint's ACHIEVED value at the current posed frame —
+// the teaching HUD's "actual" column (proves the number is enforced, not nominal).
+// Returns null for non-geometric params (enums, dynamics). Reads world positions,
+// so call after the frame is posed.
+function measureConstraint(key) {
+  if (!bonesRef || !mocapModel) return null;
+  mocapModel.updateMatrixWorld(true);
+  const mir = params.footedness === 'right' ? 1 : -1;
+  const K = params.footedness === 'right' ? 'Right' : 'Left';
+  const S = K === 'Right' ? 'Left' : 'Right';
+  const g = (n) => { const b = bonesRef[n]; return b ? b.getWorldPosition(new THREE.Vector3()) : null; };
+  switch (key) {
+    case 'aimSupportDepth': { const t = g(`${S}ToeBase`); return t ? t.z * 100 : null; }
+    case 'supportLateral': { const t = g(`${S}ToeBase`); return t ? -mir * t.x * 100 : null; }
+    case 'supportPoint': { const a = g(`${S}Foot`), t = g(`${S}ToeBase`); return (a && t) ? Math.atan2(t.x - a.x, -(t.z - a.z)) / DEG * mir : null; }
+    case 'lockAnkle': { const a = g(`${K}Foot`), t = g(`${K}ToeBase`); return (a && t) ? Math.atan2(-(t.y - a.y), Math.hypot(t.x - a.x, t.z - a.z)) / DEG : null; }
+    case 'kneeAim': { const k = g(`${K}Leg`); return k ? -k.z * 100 : null; }
+    case 'hipTurn': { const l = g('LeftUpLeg'), r = g('RightUpLeg'); return (l && r) ? Math.atan2(-(r.z - l.z) * mir, (r.x - l.x) * mir) / DEG : null; }
+    case 'torsoBend': { const h = g('Hips'), n = g('Neck'); return (h && n) ? Math.atan2(-(n.z - h.z), n.y - h.y) / DEG : null; }
+    default: return null;
+  }
 }
 
 function applyConstraints(tn) {
@@ -999,6 +1044,7 @@ function animate() {
   if (gizmo) gizmo.update();
   if (timeline) timeline.update(params.scrub);
   if (envtl) envtl.update();
+  if (cptbl) cptbl.update();
   if (contact) contact.update();
   updateTrajectory();
   controls.update();

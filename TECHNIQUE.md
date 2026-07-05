@@ -26,7 +26,21 @@
 > hip 18°). Order matters: hip yaw before trunk lean (yaw rotates the spine).
 > Verified exact: trunk 30 → 29.8°, hip 45 → 45.0°, plant/ankle unaffected,
 > smooth. Gaze already exists as an absolute look-at (lockGaze toggle) — good
-> enough for now. Next: the checkpoint TABLE editor (decision B).
+> enough for now.
+>
+> **Phase 3 (checkpoint TABLE editor + measurement HUD): SHIPPED.**
+> `src/ui/checkpoints.js` — an always-visible left panel (decision B), one
+> section per checkpoint (Approach / Plant / Backswing / Contact / Follow /
+> Landing), each row = one constraint with editable target, unit, valid range,
+> and a LIVE measured "actual" value with a green/amber in-range dot (the
+> teaching HUD). The measured readout is gated to fire only while parked near
+> that row's own checkpoint. Clicking a section header scrubs to that moment.
+> **Profiles**: save/load/delete named technique sets to localStorage. Verified:
+> at contact all four geometric constraints read exact green (hip 18.0, trunk
+> −15.0, knee −10.0, ankle 61.0 = target); edits drive the pose live and sync
+> the lil-gui; profile round-trip works. Deferred to Phase 3b: 3D drag-handles
+> in the scene (the numeric table is the source of truth and complete without
+> them). Next: real technique profiles / scenarios (then Supabase).
 
 ## Why the current approach can't teach
 
