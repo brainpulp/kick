@@ -40,7 +40,16 @@
 > −15.0, knee −10.0, ankle 61.0 = target); edits drive the pose live and sync
 > the lil-gui; profile round-trip works. Deferred to Phase 3b: 3D drag-handles
 > in the scene (the numeric table is the source of truth and complete without
-> them). Next: real technique profiles / scenarios (then Supabase).
+> them).
+>
+> **Phase 3b (in-scene drag-handles): SHIPPED.** `src/ui/handles.js` — a green
+> puck on the pitch for the PLANT toe target (drag X/Z → supportLateral +
+> aimSupportDepth) and a yellow bead at the kicking KNEE with a plumb line (drag
+> fore/aft → kneeAim). Each shows only when paused at its checkpoint; drags feed
+> the same onEdit path so the table + lil-gui + pose all update live. Verified:
+> plant drag 27→42 cm / 12→6 cm, knee drag −10→−20 cm. Angular constraints stay
+> in the table (a plane-drag only fits positions). Next: real technique profiles
+> / scenarios (then Supabase).
 
 ## Why the current approach can't teach
 

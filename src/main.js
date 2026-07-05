@@ -9,6 +9,7 @@ import { createTimeline } from './ui/timeline.js';
 import { createEnvTimeline } from './ui/envtimeline.js';
 import { createContactEditor } from './ui/contact.js';
 import { createCheckpoints } from './ui/checkpoints.js';
+import { createHandles } from './ui/handles.js';
 import { FOOT_ZONES, BALL_ZONES, meta } from './kick/parameters.js';
 import { Annotations } from './ui/annotations.js';
 import { params, DEFAULTS } from './kick/parameters.js';
@@ -30,7 +31,7 @@ if (buildEl) buildEl.textContent = `build ${__BUILD__}`;
 const { renderer, labelRenderer, scene, camera, controls } = createScene();
 const { ball } = createField(scene);
 
-let kick = null, annotations = null, editor = null, gizmo = null, timeline = null, envtl = null, contact = null, cptbl = null;
+let kick = null, annotations = null, editor = null, gizmo = null, timeline = null, envtl = null, contact = null, cptbl = null, handles = null;
 let mocap = null, mocapModel = null, mocapAvailable = false, mocapBase = null;
 let mocapAlign = { x: 0, z: 0 };  // shift so the strike foot meets the ball
 let mocapPlantLock = { x: 0, z: 0 }; // plant-foot world spot (slippage lock)
@@ -213,6 +214,13 @@ loadCharacter(scene).then(({ model, bones, rest }) => {
     measure: measureConstraint,
     getScrub: () => params.scrub,
     getContactT: () => (mocapAvailable ? mocapContactT : 0.375),
+  });
+  handles = createHandles({
+    scene, camera, renderer, controls, params, meta,
+    onEdit: (k, v) => { params[k] = v; gui.controllersRecursive().forEach((c) => c.updateDisplay()); if (!params.playing) applyFrame(params.scrub * CLIP_END); },
+    getScrub: () => params.scrub,
+    getContactT: () => (mocapAvailable ? mocapContactT : 0.375),
+    isActive: () => mocapAvailable && !params.playing,
   });
   // Single consolidated timeline: the dopesheet is shown by default and the old
   // keyframe-editor bar stays hidden (authoring uses the editor directly).
@@ -1045,6 +1053,7 @@ function animate() {
   if (timeline) timeline.update(params.scrub);
   if (envtl) envtl.update();
   if (cptbl) cptbl.update();
+  if (handles) handles.update(bonesRef);
   if (contact) contact.update();
   updateTrajectory();
   controls.update();
