@@ -1,4 +1,7 @@
 import * as THREE from 'three';
+import { Line2 } from 'three/examples/jsm/lines/Line2.js';
+import { LineGeometry } from 'three/examples/jsm/lines/LineGeometry.js';
+import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js';
 import { BALL_RADIUS } from '../field.js';
 
 const DEG = Math.PI / 180;
@@ -13,6 +16,7 @@ const BALL_POINT = new THREE.Vector3(0, BALL_RADIUS, 0);
 export class Annotations {
   constructor(scene, bones) {
     this.bones = bones || {};
+    this._fatMats = []; // LineMaterials whose pixel resolution we refresh each frame
     // Hip-turn disc: lies flat (perpendicular to the vertical hip-yaw axis).
     this.hip = new THREE.Group();
     this.hipRange = sectorMesh(0x2f6b3a, 0.22);   // full allowed range (faint)
@@ -35,23 +39,41 @@ export class Annotations {
 
     // Follow-up direction: a faint straight-on reference and a bright line from
     // the ball showing where the follow-through sends it (the launch azimuth).
-    this.followRef = axisLine(0x6f8fb0);
-    this.followDir = axisLine(0xffa23f);
+    this.followRef = this.fatLine(0x6f8fb0);
+    this.followDir = this.fatLine(0xffa23f);
     scene.add(this.followRef, this.followDir);
 
     // Body-axis lines (toggleable) that extend from key body parts.
     this.axes = {
-      hips: axisLine(0xff5d5d),
-      shoulders: axisLine(0x5db4ff),
-      toes: axisLine(0xffd23f),
-      knee: axisLine(0xb47dff),
-      gaze: axisLine(0x33e6c0),
+      hips: this.fatLine(0xff5d5d),
+      shoulders: this.fatLine(0x5db4ff),
+      toes: this.fatLine(0xffd23f),
+      knee: this.fatLine(0xb47dff),
+      gaze: this.fatLine(0x33e6c0),
     };
     for (const k in this.axes) scene.add(this.axes[k]);
   }
 
+  // A fat (2px) polyline whose per-vertex colour fades toward its far end(s), so
+  // the axis reads brightest at the body and dims into the distance. Kept in
+  // `_fatMats` so update() can refresh the pixel resolution each frame.
+  fatLine(color) {
+    const geo = new LineGeometry();
+    geo.setPositions([0, 0, 0, 0, 0, 0, 0, 0, 0]);
+    geo.setColors([0, 0, 0, 0, 0, 0, 0, 0, 0]);
+    const mat = new LineMaterial({ linewidth: 2, vertexColors: true, transparent: true, depthTest: true });
+    mat.worldUnits = false;
+    const line = new Line2(geo, mat);
+    line.visible = false; line._baseColor = new THREE.Color(color); line._n = 0;
+    this._fatMats.push(mat);
+    return line;
+  }
+
   // center: the player's world position (x,z used).
   update(params, center) {
+    const w = (typeof window !== 'undefined') ? window.innerWidth : 1920;
+    const h = (typeof window !== 'undefined') ? window.innerHeight : 1080;
+    for (const m of this._fatMats) m.resolution.set(w, h);
     if (!center) return;
     this.hip.position.set(center.x, 0.03, center.z);
     setSector(this.hipRange, 0.62, 60);                 // Hip Turn range 0–60°
@@ -122,22 +144,29 @@ export class Annotations {
   }
 }
 
-// A 2-point line we restretch each frame.
-function axisLine(color) {
-  const g = new THREE.BufferGeometry();
-  g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(6), 3));
-  const line = new THREE.Line(g, new THREE.LineBasicMaterial({ color }));
-  line.visible = false;
-  return line;
-}
-// origin + dir; `both` extends both ways, else from origin along dir by len.
+// Restretch a fat line each frame. `both` extends both ways from `origin`
+// (bright centre, dim ends); otherwise it runs from origin (bright) out to `len`
+// (dim). The far-end dim factor gives the "fading into the distance" gradient.
+const DIM = 0.16;
 function setLine(line, visible, origin, dir, len, both) {
   line.visible = !!visible;
   if (!visible || !origin || !dir) return;
-  const a = both ? origin.clone().addScaledVector(dir, -len) : origin.clone();
-  const b = origin.clone().addScaledVector(dir, len);
-  const pos = line.geometry.attributes.position;
-  pos.setXYZ(0, a.x, a.y, a.z); pos.setXYZ(1, b.x, b.y, b.z); pos.needsUpdate = true;
+  const c = line._baseColor;
+  const bright = [c.r, c.g, c.b];
+  const dim = [c.r * DIM, c.g * DIM, c.b * DIM];
+  let pos, col;
+  if (both) {
+    const a = origin.clone().addScaledVector(dir, -len);
+    const b = origin.clone().addScaledVector(dir, len);
+    pos = [a.x, a.y, a.z, origin.x, origin.y, origin.z, b.x, b.y, b.z];
+    col = [...dim, ...bright, ...dim];
+  } else {
+    const b = origin.clone().addScaledVector(dir, len);
+    pos = [origin.x, origin.y, origin.z, b.x, b.y, b.z];
+    col = [...bright, ...dim];
+  }
+  line.geometry.setPositions(pos);
+  line.geometry.setColors(col);
 }
 
 // A flat circular sector (wedge) centered on +Y (straight ahead), spanning `deg`.
