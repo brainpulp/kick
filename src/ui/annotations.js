@@ -47,9 +47,11 @@ export class Annotations {
     this.axes = {
       hips: this.fatLine(0xff5d5d),
       shoulders: this.fatLine(0x5db4ff),
+      trunk: this.fatLine(0xf2f2f2),      // hips → scapula (trunk lean) — neutral white
       toes: this.fatLine(0xffd23f),
       knee: this.fatLine(0xb47dff),
-      gaze: this.fatLine(0x33e6c0),
+      gazeL: this.fatLine(0x33e6c0),      // one line per eye, converging on the ball
+      gazeR: this.fatLine(0x33e6c0),
     };
     for (const k in this.axes) scene.add(this.axes[k]);
   }
@@ -69,8 +71,10 @@ export class Annotations {
     return line;
   }
 
-  // center: the player's world position (x,z used).
-  update(params, center) {
+  // center: the player's world position (x,z used). contactT: normalized clip
+  // time of ball contact, so the gaze can RELEASE after the strike.
+  update(params, center, contactT) {
+    this._contactT = (typeof contactT === 'number') ? contactT : null;
     const w = (typeof window !== 'undefined') ? window.innerWidth : 1920;
     const h = (typeof window !== 'undefined') ? window.innerHeight : 1080;
     for (const m of this._fatMats) m.resolution.set(w, h);
@@ -118,29 +122,57 @@ export class Annotations {
     const shLat = lateral('LeftArm', 'RightArm');
     setLine(this.axes.shoulders, on && params.axShoulders && shC && shLat, shC, shLat, L, true);
 
+    // Trunk — a straight line from the hips up to the centre of the scapulae
+    // (upper back). The torso can curve, but this shows overall trunk lean.
+    const hipsB = wp('Hips'); const scap = wp('Spine2') || wp('Spine1');
+    if (hipsB && scap) {
+      const tdir = scap.clone().sub(hipsB); const tlen = tdir.length() * 1.15; tdir.normalize();
+      setLine(this.axes.trunk, on && params.axTrunk, hipsB, tdir, tlen, false);
+    } else setLine(this.axes.trunk, false);
+
     // Toes — where the kicking foot points (horizontal forward).
     const toe = wp(`${K}ToeBase`); const foot = wp(`${K}Foot`);
     const toeDir = (toe && foot) ? toe.clone().sub(foot).setY(0).normalize() : null;
     setLine(this.axes.toes, on && params.axToes && toe && toeDir, toe, toeDir, 1.5, false);
 
-    // Knee plumb — straight down to the pitch (shows knee position vs the ball).
+    // Knee plumb — straight down to the pitch from the FRONT of the knee (the
+    // joint sits behind the kneecap; shift forward so the plumb reads "knee over
+    // ball" correctly). Forward = where the foot points.
     const knee = wp(`${K}Leg`);
-    setLine(this.axes.knee, on && params.axKnee && knee, knee, new THREE.Vector3(0, -1, 0), knee ? knee.y : 0, false);
-
-    // Gaze — from between the eyes straight to the ball. The Head joint sits up
-    // inside the skull, so drop to eye level (down along the head's up axis) and
-    // push forward onto the face, then run the line to the ball.
-    const head = wp('Head'); const neck = wp('Neck');
-    let eye = null, gazeDir = null, gazeLen = 0;
-    if (head) {
-      const up = (neck ? head.clone().sub(neck).normalize() : new THREE.Vector3(0, 1, 0));
-      const faceFwd = BALL_POINT.clone().sub(head).setY(0).normalize(); // horizontal toward ball
-      eye = head.clone().addScaledVector(up, -0.07).addScaledVector(faceFwd, 0.09); // down to eyes, out to face
-      gazeDir = BALL_POINT.clone().sub(eye);
-      gazeLen = gazeDir.length();
-      gazeDir.normalize();
+    let kneeO = knee;
+    if (knee) {
+      const f = toeDir ? toeDir.clone() : new THREE.Vector3(0, 0, -1);
+      kneeO = knee.clone().addScaledVector(f, 0.07);
     }
-    setLine(this.axes.gaze, on && params.axGaze && eye && gazeDir, eye, gazeDir, gazeLen, false);
+    setLine(this.axes.knee, on && params.axKnee && kneeO, kneeO, new THREE.Vector3(0, -1, 0), kneeO ? kneeO.y : 0, false);
+
+    // Gaze — ONE line per eye, from the eye toward the ball so the two lines
+    // converge on it (the coaching cue: eyes on the ball at the strike). AFTER
+    // contact the gaze RELEASES — the head comes up and the eyes track the flight
+    // (up & toward the goal), no longer pinned to the ball. That release is itself
+    // an important teaching point.
+    const head = wp('Head'); const neck = wp('Neck');
+    const released = this._contactT != null && (params.scrub || 0) > this._contactT + 0.02;
+    let eyeL = null, eyeR = null, dL = null, dR = null, lL = 0, lR = 0;
+    if (head) {
+      const up = neck ? head.clone().sub(neck).normalize() : new THREE.Vector3(0, 1, 0);
+      let lat = lateral('LeftArm', 'RightArm') || new THREE.Vector3(1, 0, 0);
+      let fwd = new THREE.Vector3().crossVectors(lat, up); fwd.y = 0;
+      if (fwd.lengthSq() < 1e-6) fwd.set(0, 0, -1); fwd.normalize();
+      if (fwd.z > 0) fwd.negate();                       // face toward the goal (−Z)
+      const mid = head.clone().addScaledVector(up, -0.06).addScaledVector(fwd, 0.09); // down to eyes, onto the face
+      eyeL = mid.clone().addScaledVector(lat, 0.032);
+      eyeR = mid.clone().addScaledVector(lat, -0.032);
+      if (released) {
+        const rel = new THREE.Vector3(0, 0.30, -1).normalize(); // up & down-field, following the ball
+        dL = rel.clone(); dR = rel.clone(); lL = lR = 1.6;
+      } else {
+        dL = BALL_POINT.clone().sub(eyeL); lL = dL.length(); dL.normalize();
+        dR = BALL_POINT.clone().sub(eyeR); lR = dR.length(); dR.normalize();
+      }
+    }
+    setLine(this.axes.gazeL, on && params.axGaze && eyeL, eyeL, dL, lL, false);
+    setLine(this.axes.gazeR, on && params.axGaze && eyeR, eyeR, dR, lR, false);
   }
 }
 
