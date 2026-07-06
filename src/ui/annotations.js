@@ -5,6 +5,7 @@ import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js';
 import { BALL_RADIUS } from '../field.js';
 
 const DEG = Math.PI / 180;
+const Z_AXIS = new THREE.Vector3(0, 0, 1);
 // The ball sits at the origin; gaze/aim lines converge on its center.
 const BALL_POINT = new THREE.Vector3(0, BALL_RADIUS, 0);
 
@@ -54,6 +55,15 @@ export class Annotations {
       gazeR: this.fatLine(0x33e6c0),
     };
     for (const k in this.axes) scene.add(this.axes[k]);
+
+    // Knee hinge overlay: a ring lying in the knee's flexing plane + an axis
+    // piercing the knee along the hinge (perpendicular to the knee plumb).
+    this.kneeRing = new THREE.Mesh(
+      new THREE.TorusGeometry(0.13, 0.007, 10, 44),
+      new THREE.MeshBasicMaterial({ color: 0xff5db4, depthTest: true }),
+    );
+    this.kneeRing.visible = false; scene.add(this.kneeRing);
+    this.kneeHingeAxis = this.fatLine(0xff5db4); scene.add(this.kneeHingeAxis);
   }
 
   // A fat (2px) polyline whose per-vertex colour fades toward its far end(s), so
@@ -146,6 +156,26 @@ export class Annotations {
     }
     setLine(this.axes.knee, on && params.axKnee && kneeO, kneeO, new THREE.Vector3(0, -1, 0), kneeO ? kneeO.y : 0, false);
 
+    // Knee hinge — a ring in the knee's FLEXING plane and an axis piercing the
+    // knee along the hinge. The hinge is perpendicular to both leg segments
+    // (= normal of the flex plane); when the leg is straight it degenerates, so
+    // fall back to the leg's lateral axis.
+    const kneeHip = wp(`${K}UpLeg`); const kneeAnk = wp(`${K}Foot`);
+    const showHinge = on && params.axKneeHinge && knee && kneeHip && kneeAnk;
+    this.kneeRing.visible = !!showHinge;
+    if (showHinge) {
+      const thigh = knee.clone().sub(kneeHip);
+      const shin = kneeAnk.clone().sub(knee);
+      let hinge = new THREE.Vector3().crossVectors(thigh, shin);
+      if (hinge.lengthSq() < 1e-6) hinge = (lateral(`${K}UpLeg`, `${K}Leg`) || new THREE.Vector3(1, 0, 0));
+      hinge.normalize();
+      this.kneeRing.position.copy(knee);
+      this.kneeRing.quaternion.setFromUnitVectors(Z_AXIS, hinge); // torus axis (+Z) → hinge
+      setLine(this.kneeHingeAxis, true, knee, hinge, 0.20, true);  // pierce both ways
+    } else {
+      setLine(this.kneeHingeAxis, false);
+    }
+
     // Gaze — ONE line per eye, from the eye toward the ball so the two lines
     // converge on it (the coaching cue: eyes on the ball at the strike). AFTER
     // contact the gaze RELEASES — the head comes up and the eyes track the flight
@@ -160,7 +190,9 @@ export class Annotations {
       let fwd = new THREE.Vector3().crossVectors(lat, up); fwd.y = 0;
       if (fwd.lengthSq() < 1e-6) fwd.set(0, 0, -1); fwd.normalize();
       if (fwd.z > 0) fwd.negate();                       // face toward the goal (−Z)
-      const mid = head.clone().addScaledVector(up, -0.06).addScaledVector(fwd, 0.09); // down to eyes, onto the face
+      // The Head joint sits at jaw/ear level; eyes are up toward the brow and
+      // forward onto the face.
+      const mid = head.clone().addScaledVector(up, 0.09).addScaledVector(fwd, 0.075);
       eyeL = mid.clone().addScaledVector(lat, 0.032);
       eyeR = mid.clone().addScaledVector(lat, -0.032);
       if (released) {

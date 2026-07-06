@@ -105,6 +105,7 @@ export const params = {
   axTrunk: true,
   axToes: true,
   axKnee: true,
+  axKneeHinge: true,
   axGaze: true,
 };
 
