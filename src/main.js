@@ -232,9 +232,10 @@ loadCharacter(scene).then(({ model, bones, rest }) => {
   axF.add(params, 'showAxes').name('Show axes');
   axF.add(params, 'axHips').name('Hips (L–R)');
   axF.add(params, 'axShoulders').name('Shoulders (L–R)');
+  axF.add(params, 'axTrunk').name('Trunk (hips→scapula)');
   axF.add(params, 'axToes').name('Toes (pointing)');
   axF.add(params, 'axKnee').name('Knee (plumb)');
-  axF.add(params, 'axGaze').name('Gaze');
+  axF.add(params, 'axGaze').name('Gaze (eyes→ball)');
   const stageF = gui.addFolder('Stage speeds (imported clip)');
   stageF.close();
   stageF.add(params, 'spdPreRunup', 0.2, 3, 0.05).name('Pre-run-up');
@@ -409,7 +410,7 @@ function applyFrame(tt) {
     if (!launched && crossed) launchBall();
     if (launched && !crossed) resetBall();
   }
-  annotations.update(params, mocapModel ? mocapModel.position : null);
+  annotations.update(params, mocapModel ? mocapModel.position : null, mocapAvailable ? mocapContactT : null);
 }
 
 // Shift the model down so the lowest foot rests on the pitch (kills floating /
