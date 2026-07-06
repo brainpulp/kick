@@ -235,6 +235,7 @@ loadCharacter(scene).then(({ model, bones, rest }) => {
   axF.add(params, 'axTrunk').name('Trunk (hips→scapula)');
   axF.add(params, 'axToes').name('Toes (pointing)');
   axF.add(params, 'axKnee').name('Knee (plumb)');
+  axF.add(params, 'axKneeHinge').name('Knee hinge (flex plane)');
   axF.add(params, 'axGaze').name('Gaze (eyes→ball)');
   const stageF = gui.addFolder('Stage speeds (imported clip)');
   stageF.close();
