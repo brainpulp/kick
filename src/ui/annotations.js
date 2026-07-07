@@ -49,7 +49,8 @@ export class Annotations {
       hips: this.fatLine(0xff5d5d),
       shoulders: this.fatLine(0x5db4ff),
       trunk: this.fatLine(0xf2f2f2),      // hips → scapula (trunk lean) — neutral white
-      toes: this.fatLine(0xffd23f),
+      toes: this.fatLine(0xffd23f),       // kicking foot pointing
+      plant: this.fatLine(0x5bd75b),      // planted foot pointing (indicates ball direction)
       knee: this.fatLine(0xb47dff),
       gazeL: this.fatLine(0x33e6c0),      // one line per eye, converging on the ball
       gazeR: this.fatLine(0x33e6c0),
@@ -144,6 +145,14 @@ export class Annotations {
     const toe = wp(`${K}ToeBase`); const foot = wp(`${K}Foot`);
     const toeDir = (toe && foot) ? toe.clone().sub(foot).setY(0).normalize() : null;
     setLine(this.axes.toes, on && params.axToes && toe && toeDir, toe, toeDir, 1.5, false);
+
+    // Planted foot — its pointing direction (horizontal), a strong indicator of
+    // where the ball will go. Drawn flat along the pitch from the plant toe.
+    const S = K === 'Right' ? 'Left' : 'Right';
+    const pToe = wp(`${S}ToeBase`); const pFoot = wp(`${S}Foot`);
+    const pDir = (pToe && pFoot) ? pToe.clone().sub(pFoot).setY(0).normalize() : null;
+    const pOrigin = pToe ? pToe.clone().setY(0.02) : null; // ride the floor
+    setLine(this.axes.plant, on && params.axPlant && pOrigin && pDir, pOrigin, pDir, 3, false);
 
     // Knee plumb — straight down to the pitch from the FRONT of the knee (the
     // joint sits behind the kneecap; shift forward so the plumb reads "knee over
