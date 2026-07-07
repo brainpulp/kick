@@ -100,6 +100,27 @@ function launchBall() {
   launched = true;
 }
 
+// Position the ball for a PAUSED/scrubbed frame: before contact it sits at home;
+// after contact it flies along the computed launch trajectory for the elapsed
+// portion of the post-contact timeline (so scrubbing shows the flight, not a
+// frozen ball). ~1.4 s of flight is mapped across the post-contact scrub range.
+function setBallForScrub(scrubN) {
+  const c = mocapAvailable ? mocapContactT : (CONTACT_T / CLIP_END);
+  if (scrubN <= c + 0.003) { ball.position.copy(ballHome); return; }
+  const L = kick.computeLaunch(params);
+  const elev = L.elevation * DEG, az = L.azimuth * DEG, horiz = L.speed * Math.cos(elev);
+  let vx = horiz * Math.sin(az), vy = L.speed * Math.sin(elev), vz = -horiz * Math.cos(az);
+  let px = ballHome.x, py = ballHome.y, pz = ballHome.z;
+  const T = ((scrubN - c) / Math.max(1e-3, 1 - c)) * 1.4; // seconds of flight
+  const dt = 1 / 120;
+  for (let t = 0; t < T; t += dt) {
+    vy -= GRAVITY * dt; vx += L.spin * 3.0 * dt;
+    px += vx * dt; py += vy * dt; pz += vz * dt;
+    if (py <= BALL_RADIUS) { py = BALL_RADIUS; vy *= -0.35; vx *= 0.8; vz *= 0.8; if (Math.abs(vy) < 0.5) vy = 0; }
+  }
+  ball.position.set(px, py, pz);
+}
+
 function stepBall(dt) {
   if (!launched) return;
   ballVel.y -= GRAVITY * dt;
@@ -233,7 +254,8 @@ loadCharacter(scene).then(({ model, bones, rest }) => {
   axF.add(params, 'axHips').name('Hips (L–R)');
   axF.add(params, 'axShoulders').name('Shoulders (L–R)');
   axF.add(params, 'axTrunk').name('Trunk (hips→scapula)');
-  axF.add(params, 'axToes').name('Toes (pointing)');
+  axF.add(params, 'axToes').name('Kicking foot (pointing)');
+  axF.add(params, 'axPlant').name('Plant foot (→ ball dir)');
   axF.add(params, 'axKnee').name('Knee (plumb)');
   axF.add(params, 'axKneeHinge').name('Knee hinge (flex plane)');
   axF.add(params, 'axGaze').name('Gaze (eyes→ball)');
@@ -393,6 +415,11 @@ function applyFrame(tt) {
     );
     groundModel();
     if (!params.rawClip) {
+    // Hop: the little skip right before the plant foot lands — the body rises and
+    // drops onto the plant (a vertical arc; the clip supplies the forward travel).
+    // Gone by the plant (~0.28) so it never disturbs the planted foot.
+    const he = env(tn, timings.hop);
+    if (he > 0.001) { mocapModel.position.y += he * 0.06; mocapModel.position.z -= he * 0.02; }
     applyTilt(tn); // whole-body lean about the plant foot
     applyRunupAngle(tn); // angle the approach (rotate the run about the ball)
     applySlippage(tn);   // lock/scale the plant-foot forward slide (0 = no slide)
@@ -484,6 +511,7 @@ function applySlippage(tn) {
 // calibration and become the defaults, so the untouched state still looks like
 // the real kick while every number is now exact and independently adjustable.
 let plantNat = null;   // measured natural plant: { toeY }
+let plantFlatPitch = 12; // plant-foot ankle→toe pitch held through the stance (flat, heel down)
 let hadSave = false;   // did a saved parameter set exist (skip default seeding)
 const _ctToe = new THREE.Vector3(), _ctAnk = new THREE.Vector3();
 const _ctTarget = new THREE.Vector3(), _ctPole = new THREE.Vector3();
@@ -618,7 +646,7 @@ function applyConstraints(tn) {
   if (wP > 0.001 && hipS && kneeS && ankS && toeS) {
     const depth = (params.aimSupportDepth ?? 20) / 100;  // + = behind the ball (+Z)
     const lat = (params.supportLateral ?? 12) / 100;     // + = toward the plant side
-    for (let it = 0; it < 2; it++) {
+    for (let it = 0; it < 3; it++) {
       toeS.getWorldPosition(_ctToe); ankS.getWorldPosition(_ctAnk);
       _ctTarget.set(
         -mir * lat - (_ctToe.x - _ctAnk.x),
@@ -626,7 +654,9 @@ function applyConstraints(tn) {
         depth - (_ctToe.z - _ctAnk.z),
       );
       solveLeg({ model: mocapModel, hip: hipS, knee: kneeS, ankle: ankS, target: _ctTarget, weight: wP });
-      solveFoot({ model: mocapModel, foot: ankS, toe: toeS, yawDeg: (params.supportPoint || 0) * mir, weight: wP });
+      // Keep the plant foot FLAT (firmly planted, sole ~parallel to the pitch) —
+      // the clip rolls it up onto the toes; hold it at the rest-pose flat pitch.
+      solveFoot({ model: mocapModel, foot: ankS, toe: toeS, yawDeg: (params.supportPoint || 0) * mir, pitchDeg: plantFlatPitch, weight: wP });
     }
   }
 }
@@ -1018,6 +1048,7 @@ function animate() {
     if (!params.playing) {
       setModelFade(1);
       applyFrame(params.scrub * CLIP_END);            // paused: scrub the pose
+      setBallForScrub(params.scrub);                  // ...and the ball's flight
     } else if (params.source === 'mocap' && mocapAvailable) {
       // Imported clip plays through directly: it is a seamless running loop with
       // the kick baked in, so its own approach strides are clean mocap (no
