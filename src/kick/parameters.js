@@ -15,12 +15,12 @@ export const params = {
 
   // Plant (support) foot placement — 3 DOF, ABSOLUTE and ball-relative,
   // enforced exactly by leg IK during the stance (TECHNIQUE.md Phase 1):
-  //  depth   = plant TOE distance behind the ball centre (cm),
+  //  depth   = plant TOE distance behind the ball centre (cm); 0 = level, − = ahead,
   //  lateral = plant TOE distance to the side of the ball (cm, toward plant side),
   //  point   = toe yaw (deg); 0 = pointing at the goal.
-  // Defaults are overwritten at load with the values MEASURED from the clip.
-  aimSupportDepth: 20,
-  supportLateral: 12,
+  // Default: planted beside the ball, toe level with it, ~15 cm to the side.
+  aimSupportDepth: 0,
+  supportLateral: 15,
   supportPoint: 0,
 
   // NOTE: the base animation is a full, natural mocap kick. Every slider below is a

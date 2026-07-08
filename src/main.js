@@ -247,6 +247,11 @@ loadCharacter(scene).then(({ model, bones, rest }) => {
   // keyframe-editor bar stays hidden (authoring uses the editor directly).
   envtl.setVisible(true);
   gui.add({ timing: true }, 'timing').name('⏱ Timing editor').onChange((v) => envtl.setVisible(v));
+  // Fine contact-scrub: the whole-clip scrub gives the touch only a sliver of
+  // travel, so this maps a full slider to a ±70 ms window around contact — the
+  // key moment — for frame-accurate study of the foot meeting the ball.
+  gui.add({ cfine: 0.5 }, 'cfine', 0, 1, 0.0005).name('◎ Contact fine-scrub')
+    .onChange((v) => { params.playing = false; const c = mocapAvailable ? mocapContactT : (CONTACT_T / CLIP_END); params.scrub = Math.max(0, Math.min(1, c + (v - 0.5) * 0.14)); applyFrame(params.scrub * CLIP_END); setBallForScrub(params.scrub); });
   gui.add(params, 'delay', 0, 3, 0.05).name('Delay before kick (s)');
   const axF = gui.addFolder('Body axes');
   axF.close();
@@ -452,8 +457,11 @@ function groundModel() {
     const b = bonesRef[n]; if (!b) continue;
     b.getWorldPosition(_wp); if (_wp.y < minY) minY = _wp.y;
   }
-  if (minY !== Infinity) mocapModel.position.y -= (minY - 0.02);
+  if (minY !== Infinity) mocapModel.position.y -= (minY - GROUND_CLEAR);
 }
+// Lowest foot BONE rests this far above the pitch, so the boot MESH (which
+// extends below the bones) sits on the grass instead of poking through it.
+const GROUND_CLEAR = 0.045;
 
 const _smooth = (u) => { const x = Math.min(1, Math.max(0, u)); return x * x * (3 - 2 * x); };
 
@@ -511,7 +519,7 @@ function applySlippage(tn) {
 // calibration and become the defaults, so the untouched state still looks like
 // the real kick while every number is now exact and independently adjustable.
 let plantNat = null;   // measured natural plant: { toeY }
-let plantFlatPitch = 12; // plant-foot ankle→toe pitch held through the stance (flat, heel down)
+let plantFlatPitch = 20; // plant-foot ankle→toe pitch for a flat sole at a natural ankle height
 let hadSave = false;   // did a saved parameter set exist (skip default seeding)
 const _ctToe = new THREE.Vector3(), _ctAnk = new THREE.Vector3();
 const _ctTarget = new THREE.Vector3(), _ctPole = new THREE.Vector3();
@@ -644,18 +652,22 @@ function applyConstraints(tn) {
   const wP = plantEnv(tn);
   const hipS = bonesRef[`${S}UpLeg`], kneeS = bonesRef[`${S}Leg`], ankS = bonesRef[`${S}Foot`], toeS = bonesRef[`${S}ToeBase`];
   if (wP > 0.001 && hipS && kneeS && ankS && toeS) {
-    const depth = (params.aimSupportDepth ?? 20) / 100;  // + = behind the ball (+Z)
-    const lat = (params.supportLateral ?? 12) / 100;     // + = toward the plant side
-    for (let it = 0; it < 3; it++) {
+    const depth = (params.aimSupportDepth ?? 0) / 100;   // + = behind the ball (+Z)
+    const lat = (params.supportLateral ?? 15) / 100;     // + = toward the plant side
+    for (let it = 0; it < 4; it++) {
       toeS.getWorldPosition(_ctToe); ankS.getWorldPosition(_ctAnk);
+      // Pull the toe toward the pitch, but never demand more than the leg can
+      // reach (the plant leg extends near contact) — clamp so it plants without
+      // over-bending or floating.
+      const desToeY = Math.min(_ctToe.y, plantNat.toeY);
       _ctTarget.set(
         -mir * lat - (_ctToe.x - _ctAnk.x),
-        plantNat.toeY - (_ctToe.y - _ctAnk.y),
+        desToeY - (_ctToe.y - _ctAnk.y),
         depth - (_ctToe.z - _ctAnk.z),
       );
       solveLeg({ model: mocapModel, hip: hipS, knee: kneeS, ankle: ankS, target: _ctTarget, weight: wP });
-      // Keep the plant foot FLAT (firmly planted, sole ~parallel to the pitch) —
-      // the clip rolls it up onto the toes; hold it at the rest-pose flat pitch.
+      // Flatten the plant sole toward firmly-planted (heel down), weighted by the
+      // plant window.
       solveFoot({ model: mocapModel, foot: ankS, toe: toeS, yawDeg: (params.supportPoint || 0) * mir, pitchDeg: plantFlatPitch, weight: wP });
     }
   }
@@ -967,7 +979,7 @@ function calibrateMocap() {
   // Measure the clip's natural checkpoint values and seed them as the defaults
   // (fresh sessions only) — so the untouched state IS the natural kick, but every
   // number is now an exact, enforced, ball-relative measurement (TECHNIQUE.md).
-  plantNat = { toeY: plantRelY + 0.02 }; // grounded height (groundModel rests soles at 0.02)
+  plantNat = { toeY: GROUND_CLEAR }; // plant toe sits on the pitch (boot-mesh clearance); ankle rises via the flat-foot pitch
   {
     const mir2 = K === 'Right' ? 1 : -1;
     const ankS = bonesRef[`${S}Foot`];
@@ -1001,8 +1013,6 @@ function calibrateMocap() {
     }
     if (!hadSave) {
       const seed = {
-        aimSupportDepth: Math.round(pl.z * 100),
-        supportLateral: Math.round(-mir2 * pl.x * 100),
         supportPoint: Math.round(yawNat),
         lockAnkle: Math.round(pitchNat),
         kneeAim: Math.round(Math.min(10, Math.max(-20, kneeNat))),
