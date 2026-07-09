@@ -519,7 +519,7 @@ function applySlippage(tn) {
 // calibration and become the defaults, so the untouched state still looks like
 // the real kick while every number is now exact and independently adjustable.
 let plantNat = null;   // measured natural plant: { toeY }
-let plantFlatPitch = 20; // plant-foot ankle→toe pitch for a flat sole at a natural ankle height
+let plantFlatPitch = 30; // plant-foot ankle→toe pitch for a flat sole (tuned so the boot lies flat)
 let hadSave = false;   // did a saved parameter set exist (skip default seeding)
 const _ctToe = new THREE.Vector3(), _ctAnk = new THREE.Vector3();
 const _ctTarget = new THREE.Vector3(), _ctPole = new THREE.Vector3();
@@ -670,6 +670,13 @@ function applyConstraints(tn) {
       // plant window.
       solveFoot({ model: mocapModel, foot: ankS, toe: toeS, yawDeg: (params.supportPoint || 0) * mir, pitchDeg: plantFlatPitch, weight: wP });
     }
+    // The plant leg extends to reach the strike, which lifts the flat foot off the
+    // pitch. Drop the whole body so the plant foot is firmly grounded — a slightly
+    // lower athletic stance; the kicking foot then meets the (low) ball a touch
+    // lower, which is fine. Eased by the plant weight, clamped so it can't collapse.
+    toeS.getWorldPosition(_ctToe);
+    const drop = _ctToe.y - plantNat.toeY;
+    if (drop > 0.005) mocapModel.position.y -= Math.min(drop, 0.12) * wP;
   }
 }
 
@@ -921,11 +928,10 @@ function calibrateMocap() {
   // strikes it. The plant foot then lands wherever the clip places it — a
   // realistic plant-to-ball offset that comes straight from the mocap.
   const o = mocap.rootOffset(mocapContactT) || { x: 0, z: 0 };
-  // Anchor slightly BEHIND the ball: the ankle sits back so the instep (mid-boot)
-  // meets the ball's rear surface instead of the ankle passing through its centre.
-  // A little residual overlap at the exact contact frame is right — a real strike
-  // compresses the ball.
-  const STRIKE_ANCHOR_Z = 0.06;
+  // Anchor the ankle well BEHIND the ball so the LACES/instep (mid-boot, ~15 cm
+  // ahead of the ankle) meet the ball's rear surface — the boot doesn't sink
+  // through the ball, and the strike surface is the laces (instep drive).
+  const STRIKE_ANCHOR_Z = 0.17;
   mocapAlign = { x: o.x - fl[ci].x, z: o.z - fl[ci].z + STRIKE_ANCHOR_Z };
   // Plant (support) foot world position at contact, in the RUNTIME frame — the
   // "locked" spot the foot should hold — captured at the PLANT moment (before
@@ -1016,8 +1022,9 @@ function calibrateMocap() {
         supportPoint: Math.round(yawNat),
         lockAnkle: Math.round(pitchNat),
         kneeAim: Math.round(Math.min(10, Math.max(-20, kneeNat))),
-        torsoBend: Math.round(trunkNat),
         hipTurn: Math.round(hipNatDeg),
+        // torsoBend is NOT seeded from the clip (which leans back) — the default is
+        // a forward hip-hinge over the ball; see parameters.js.
       };
       Object.assign(params, seed);
       Object.assign(DEFAULTS, seed);
