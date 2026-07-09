@@ -3,7 +3,7 @@
 import { params } from './kick/parameters.js';
 import { timings } from './kick/timing.js';
 
-const KEY = 'kick.autosave.v5'; // v5: TECHNIQUE Phase 2 — absolute trunk lean + hip line
+const KEY = 'kick.autosave.v6'; // v6: plant beside the ball (depth 0 / lateral 15), forward trunk hinge
 const SKIP = new Set(['playing', 'scrub', 'source']); // transient / set at runtime
 
 export function saveState() {

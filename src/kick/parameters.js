@@ -103,11 +103,14 @@ export const params = {
   showAxes: true,
   axHips: true,
   axShoulders: true,
+  axShoulderPlumb: true,
   axTrunk: true,
   axToes: true,
   axPlant: true,
   axKnee: true,
   axKneeHinge: true,
+  axFemurHinge: true,
+  axRulers: true,
   axGaze: true,
 };
 
