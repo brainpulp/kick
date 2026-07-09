@@ -56,9 +56,10 @@ export const params = {
   recoil: 0,
 
   // Trunk lean — ABSOLUTE forward flexion of the trunk at contact (deg from
-  // vertical; more = folded over the ball, keeps it down). Enforced by the spine
-  // solve. Default overwritten with the value measured from the clip.
-  torsoBend: 12,
+  // vertical; + = hinged FORWARD over the ball, − = leaned back). The trunk snaps
+  // forward at the hip through contact (the hip-hinge that adds power), so the
+  // default is a forward hinge rather than the clip's natural slight lean-back.
+  torsoBend: 18,
 
   // Counter arm — the arm opposite the kicking leg. When > 0 it REPLACES the
   // clip's natural arm swing with a synthetic one (stretched back&up in the run-up
