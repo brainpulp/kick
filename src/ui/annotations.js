@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { Line2 } from 'three/examples/jsm/lines/Line2.js';
 import { LineGeometry } from 'three/examples/jsm/lines/LineGeometry.js';
 import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js';
+import { CSS2DObject } from 'three/examples/jsm/renderers/CSS2DRenderer.js';
 import { BALL_RADIUS } from '../field.js';
 
 const DEG = Math.PI / 180;
@@ -52,6 +53,7 @@ export class Annotations {
       toes: this.fatLine(0xffd23f),       // kicking foot pointing
       plant: this.fatLine(0x5bd75b),      // planted foot pointing (indicates ball direction)
       knee: this.fatLine(0xb47dff),
+      shPlumb: this.fatLine(0x5db4ff),    // vertical drop from the shoulders to the pitch
       gazeL: this.fatLine(0x33e6c0),      // one line per eye, converging on the ball
       gazeR: this.fatLine(0x33e6c0),
     };
@@ -65,6 +67,44 @@ export class Annotations {
     );
     this.kneeRing.visible = false; scene.add(this.kneeRing);
     this.kneeHingeAxis = this.fatLine(0xff5db4); scene.add(this.kneeHingeAxis);
+
+    // Femur (thigh) motion disc — SAGITTAL only (front/back swing), to read the
+    // cock-back / spring-forward. Ring in the sagittal plane at the hip + an axis
+    // along the medial-lateral hinge (like the knee, but 1-DOF by construction).
+    this.femurRing = new THREE.Mesh(
+      new THREE.TorusGeometry(0.16, 0.007, 10, 48),
+      new THREE.MeshBasicMaterial({ color: 0x2fd8d8, depthTest: true }),
+    );
+    this.femurRing.visible = false; scene.add(this.femurRing);
+    this.femurAxis = this.fatLine(0x2fd8d8); scene.add(this.femurAxis);
+
+    // Ground rulers: a ticked line on the pitch from the ball's ground point to
+    // the knee-plumb and shoulder-plumb ground points, with a live cm label — so
+    // the "shoulder over the ball" / "knee over the ball" distances are readable.
+    this.kneeRuler = this.makeRuler(0xb47dff, scene);
+    this.shRuler = this.makeRuler(0x5db4ff, scene);
+  }
+
+  // A ground ruler: a fat line on the pitch + a CSS2D distance label (cm).
+  makeRuler(color, scene) {
+    const line = this.fatLine(color); scene.add(line);
+    const el = document.createElement('div');
+    el.style.cssText = 'color:#eaffff;background:rgba(12,16,14,.72);border:1px solid rgba(255,255,255,.25);'
+      + 'border-radius:4px;padding:1px 5px;font:11px system-ui,sans-serif;white-space:nowrap;pointer-events:none';
+    const label = new CSS2DObject(el); label.visible = false; scene.add(label);
+    return { line, label, el };
+  }
+  updateRuler(r, groundPt) {
+    const vis = !!groundPt;
+    r.line.visible = vis; r.label.visible = vis;
+    if (!vis) return;
+    const a = new THREE.Vector3(0, 0.012, 0);                    // ball centre on the pitch
+    const b = new THREE.Vector3(groundPt.x, 0.012, groundPt.z);  // plumb ground point
+    const dir = b.clone().sub(a); const len = dir.length(); const dist = len;
+    if (len > 1e-4) { dir.normalize(); setLine(r.line, true, a, dir, len, false); } else r.line.visible = false;
+    const mid = a.clone().add(b).multiplyScalar(0.5); mid.y = 0.05;
+    r.label.position.copy(mid);
+    r.el.textContent = `${Math.round(dist * 100)} cm`;
   }
 
   // A fat (2px) polyline whose per-vertex colour fades toward its far end(s), so
@@ -184,6 +224,28 @@ export class Annotations {
     } else {
       setLine(this.kneeHingeAxis, false);
     }
+
+    // Shoulder plumb — vertical drop from the shoulder centre to the pitch, to
+    // check the shoulders are over the ball at contact (and read the hip-hinge).
+    setLine(this.axes.shPlumb, on && params.axShoulderPlumb && shC, shC, new THREE.Vector3(0, -1, 0), shC ? shC.y : 0, false);
+
+    // Femur disc — SAGITTAL (front/back) motion of the kicking thigh, for the
+    // cock-back / spring-forward. Ring in the sagittal plane at the hip; axis
+    // along the medial-lateral hinge (horizontal, ⟂ the forward swing).
+    const showFemur = on && params.axFemurHinge && kneeHip && knee;
+    this.femurRing.visible = !!showFemur;
+    if (showFemur) {
+      const lat = lateral('LeftUpLeg', 'RightUpLeg') || new THREE.Vector3(1, 0, 0);
+      this.femurRing.position.copy(kneeHip);
+      this.femurRing.quaternion.setFromUnitVectors(Z_AXIS, lat); // ring normal = lateral → sagittal plane
+      setLine(this.femurAxis, true, kneeHip, lat, 0.22, true);
+    } else setLine(this.femurAxis, false);
+
+    // Ground rulers: ball centre → knee-plumb and → shoulder-plumb ground points,
+    // with a live cm label (how far the knee / shoulders are from over the ball).
+    const rulersOn = on && params.axRulers;
+    this.updateRuler(this.kneeRuler, (rulersOn && kneeO) ? new THREE.Vector3(kneeO.x, 0, kneeO.z) : null);
+    this.updateRuler(this.shRuler, (rulersOn && shC) ? new THREE.Vector3(shC.x, 0, shC.z) : null);
 
     // Gaze — ONE line per eye, from the eye toward the ball so the two lines
     // converge on it (the coaching cue: eyes on the ball at the strike). AFTER

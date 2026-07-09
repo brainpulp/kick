@@ -258,11 +258,14 @@ loadCharacter(scene).then(({ model, bones, rest }) => {
   axF.add(params, 'showAxes').name('Show axes');
   axF.add(params, 'axHips').name('Hips (L–R)');
   axF.add(params, 'axShoulders').name('Shoulders (L–R)');
+  axF.add(params, 'axShoulderPlumb').name('Shoulder plumb');
   axF.add(params, 'axTrunk').name('Trunk (hips→scapula)');
   axF.add(params, 'axToes').name('Kicking foot (pointing)');
   axF.add(params, 'axPlant').name('Plant foot (→ ball dir)');
   axF.add(params, 'axKnee').name('Knee (plumb)');
   axF.add(params, 'axKneeHinge').name('Knee hinge (flex plane)');
+  axF.add(params, 'axFemurHinge').name('Femur disc (front/back)');
+  axF.add(params, 'axRulers').name('Ground rulers → ball');
   axF.add(params, 'axGaze').name('Gaze (eyes→ball)');
   const stageF = gui.addFolder('Stage speeds (imported clip)');
   stageF.close();
