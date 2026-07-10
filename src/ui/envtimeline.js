@@ -5,9 +5,9 @@
 import { timings, TIMING_DEFAULTS } from '../kick/timing.js';
 
 const css = `
-#envtl{position:fixed;left:0;right:0;bottom:0;background:rgba(18,22,20,.93);
-  border-top:1px solid #2c3a32;padding:6px 16px 10px;font:11px system-ui,sans-serif;
-  color:#cfe;z-index:30;user-select:none;backdrop-filter:blur(3px)}
+#envtl{position:fixed;left:0;right:262px;bottom:0;background:rgba(18,22,20,.93);
+  border-top:1px solid #2c3a32;border-right:1px solid #2c3a32;padding:6px 16px 10px;
+  font:11px system-ui,sans-serif;color:#cfe;z-index:30;user-select:none;backdrop-filter:blur(3px)}
 #envtl h4{margin:0 0 6px;font-size:11px;font-weight:600;color:#9fe6bf;letter-spacing:.3px;
   display:flex;justify-content:space-between}
 #envtl .row{display:flex;align-items:center;height:18px;margin:2px 0}

@@ -104,6 +104,7 @@ export const params = {
   axHips: true,
   axShoulders: true,
   axShoulderPlumb: true,
+  axHipPlumb: true,
   axTrunk: true,
   axToes: true,
   axPlant: true,

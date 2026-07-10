@@ -259,6 +259,7 @@ loadCharacter(scene).then(({ model, bones, rest }) => {
   axF.add(params, 'axHips').name('Hips (L–R)');
   axF.add(params, 'axShoulders').name('Shoulders (L–R)');
   axF.add(params, 'axShoulderPlumb').name('Shoulder plumb');
+  axF.add(params, 'axHipPlumb').name('Hip plumb');
   axF.add(params, 'axTrunk').name('Trunk (hips→scapula)');
   axF.add(params, 'axToes').name('Kicking foot (pointing)');
   axF.add(params, 'axPlant').name('Plant foot (→ ball dir)');
@@ -408,6 +409,7 @@ function applyFrame(tt) {
     mocap.seek(tn);                       // baked clip...
     if (!params.rawClip) {
     applyOverrides(bonesRef, restRef, params); // ...+ live parameter overrides
+    applyHopFoot(tn);                     // last step: lift the kicking foot before the plant lands
     applyRecoil(tn);                      // cock-back (pre-contact)
     applyWhip(tn);                        // strike: femur+knee drive, pelvis un-wind
     applyArms(tn);                        // counter-arm swing
@@ -553,13 +555,14 @@ let kneeGain = 2.0;    // solved body-shift per metre of requested deviation
 let trunkNat = 0;      // clip's natural forward trunk lean at contact (deg)
 let hipNatDeg = 0;     // clip's natural pelvis (hip-line) yaw at contact (deg)
 
-// Trunk/hip constraints: a fold that ramps in over the strike and recovers
-// through the early follow-through — peaks at contact (the taught moment).
+// Trunk hip-hinge timing: the trunk stays STRAIGHT through the recoil, then
+// snaps forward at the hip AS the kicking foot drives to the ball (the power
+// hinge). So the ramp starts late (just before contact) and eases out after.
 function trunkEnv(tn) {
   const c = mocapContactT;
-  if (tn < c - 0.12 || tn > c + 0.18) return 0;
-  if (tn < c) return _smooth((tn - (c - 0.12)) / 0.12);
-  return 1 - _smooth((tn - c) / 0.18);
+  if (tn < c - 0.05 || tn > c + 0.16) return 0;
+  if (tn < c) return _smooth((tn - (c - 0.05)) / 0.05);
+  return 1 - _smooth((tn - c) / 0.16);
 }
 
 // The teaching checkpoints (TECHNIQUE.md) and which exact constraints each owns.
@@ -613,7 +616,9 @@ function applyConstraints(tn) {
     if (bonesRef.Hips && bonesRef.LeftUpLeg && bonesRef.RightUpLeg) {
       solveHipYaw({ model: mocapModel, hips: bonesRef.Hips, upLegs, leftHip: bonesRef.LeftUpLeg, rightHip: bonesRef.RightUpLeg, yawDeg: params.hipTurn ?? hipNatDeg, mir, weight: wT });
     }
-    const spine = ['Spine', 'Spine1', 'Spine2'].map((n) => { const b = bonesRef[n]; if (b) b.w = 1; return b; }).filter(Boolean);
+    // Hinge at the HIP: bend the BASE of the spine so the trunk tips forward as
+    // one straight segment (not a spinal/neck curl).
+    const spine = ['Spine'].map((n) => { const b = bonesRef[n]; if (b) b.w = 1; return b; }).filter(Boolean);
     if (spine.length && bonesRef.Neck) {
       solveTrunkLean({ model: mocapModel, hips: bonesRef.Hips, chain: spine, tip: bonesRef.Neck, pitchDeg: params.torsoBend ?? trunkNat, weight: wT });
     }
@@ -779,6 +784,26 @@ function applyFollowBody(scrubN) {
 // (0.78c→0.92c), peaks at the top of the backswing, then releases by contact as
 // the whip fires. Zero everywhere else.
 function recoilEnvelope(scrubN) { return env(scrubN, timings.recoil); }
+
+// Procedural hop (last step): tuck the trailing = KICKING leg up so it's airborne
+// through the last stride, giving a both-feet-in-the-air beat BEFORE the plant
+// foot lands (~0.28) — the natural skip into the plant, without an extra step.
+const _hfEuler = new THREE.Euler();
+const _hfQuat = new THREE.Quaternion();
+function hopFootEnv(tn) {
+  const a = 0.02, pk = 0.15, e = 0.30;
+  if (tn < a || tn > e) return 0;
+  if (tn < pk) return _smooth((tn - a) / (pk - a));
+  return 1 - _smooth((tn - pk) / (e - pk));
+}
+function applyHopFoot(tn) {
+  const e = hopFootEnv(tn);
+  if (e < 0.01) return;
+  const K = params.footedness === 'right' ? 'Right' : 'Left';
+  const add = (name, x) => { const b = bonesRef[name]; if (!b) return; _hfEuler.set(x * DEG, 0, 0, 'XYZ'); b.quaternion.multiply(_hfQuat.setFromEuler(_hfEuler)); };
+  add(`${K}UpLeg`, e * 20);   // hip flexion — thigh comes up
+  add(`${K}Leg`, -e * 48);    // knee flexion — tuck the shin/foot up, off the ground
+}
 
 // The cock-back, layered on the baked pose during the recoil stage:
 //  1. the pelvis winds toward the kicking foot (rotating about the plant hip);
@@ -1024,7 +1049,8 @@ function calibrateMocap() {
       const seed = {
         supportPoint: Math.round(yawNat),
         lockAnkle: Math.round(pitchNat),
-        kneeAim: Math.round(Math.min(10, Math.max(-20, kneeNat))),
+        // kneeAim NOT seeded from the clip — the coaching default (0) puts the
+        // knee plumb over the ball's centre in Z; lateral offset follows the tilt.
         hipTurn: Math.round(hipNatDeg),
         // torsoBend is NOT seeded from the clip (which leans back) — the default is
         // a forward hip-hinge over the ball; see parameters.js.

@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import { Line2 } from 'three/examples/jsm/lines/Line2.js';
 import { LineGeometry } from 'three/examples/jsm/lines/LineGeometry.js';
 import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js';
+import { LineSegments2 } from 'three/examples/jsm/lines/LineSegments2.js';
+import { LineSegmentsGeometry } from 'three/examples/jsm/lines/LineSegmentsGeometry.js';
 import { CSS2DObject } from 'three/examples/jsm/renderers/CSS2DRenderer.js';
 import { BALL_RADIUS } from '../field.js';
 
@@ -19,21 +21,6 @@ export class Annotations {
   constructor(scene, bones) {
     this.bones = bones || {};
     this._fatMats = []; // LineMaterials whose pixel resolution we refresh each frame
-    // Hip-turn disc: lies flat (perpendicular to the vertical hip-yaw axis).
-    this.hip = new THREE.Group();
-    this.hipRange = sectorMesh(0x2f6b3a, 0.22);   // full allowed range (faint)
-    this.hipValue = sectorMesh(0x8ff0b6, 0.55);   // current value (bright)
-    this.hipValue.position.z = 0.001;
-    this.needle = new THREE.Group();
-    const needle = new THREE.Mesh(
-      new THREE.BoxGeometry(0.6, 0.006, 0.014),
-      new THREE.MeshBasicMaterial({ color: 0xeafff0 }),
-    );
-    needle.position.x = 0.3;
-    this.needle.add(needle);
-    this.hip.add(this.hipRange, this.hipValue, this.needle);
-    this.hip.rotation.x = -Math.PI / 2;
-    scene.add(this.hip);
 
     // Distance line (displacement) — Aim-Support depth behind the plant.
     this.dist = makeDistanceLine(0x8fd0ff);
@@ -54,6 +41,7 @@ export class Annotations {
       plant: this.fatLine(0x5bd75b),      // planted foot pointing (indicates ball direction)
       knee: this.fatLine(0xb47dff),
       shPlumb: this.fatLine(0x5db4ff),    // vertical drop from the shoulders to the pitch
+      hipPlumb: this.fatLine(0xff5d5d),   // vertical drop from the pelvis to the pitch
       gazeL: this.fatLine(0x33e6c0),      // one line per eye, converging on the ball
       gazeR: this.fatLine(0x33e6c0),
     };
@@ -78,33 +66,56 @@ export class Annotations {
     this.femurRing.visible = false; scene.add(this.femurRing);
     this.femurAxis = this.fatLine(0x2fd8d8); scene.add(this.femurAxis);
 
-    // Ground rulers: a ticked line on the pitch from the ball's ground point to
-    // the knee-plumb and shoulder-plumb ground points, with a live cm label — so
-    // the "shoulder over the ball" / "knee over the ball" distances are readable.
+    // Plant-KNEE hinge disc (the other leg), same as the kicking knee's.
+    this.plantKneeRing = new THREE.Mesh(
+      new THREE.TorusGeometry(0.13, 0.007, 10, 44),
+      new THREE.MeshBasicMaterial({ color: 0xff9838, depthTest: true }),
+    );
+    this.plantKneeRing.visible = false; scene.add(this.plantKneeRing);
+    this.plantKneeAxis = this.fatLine(0xff9838); scene.add(this.plantKneeAxis);
+
+    // Graphical ground rulers with NOTCHES (every 10 cm, taller at 50 cm) drawn on
+    // the pitch, plus a cm label. knee/shoulder/hip plumb → ball, and the plant
+    // foot's fore/aft (Z) and left/right (X) offsets from the ball.
     this.kneeRuler = this.makeRuler(0xb47dff, scene);
     this.shRuler = this.makeRuler(0x5db4ff, scene);
+    this.hipRuler = this.makeRuler(0xff5d5d, scene);
+    this.plantFA = this.makeRuler(0x5bd75b, scene);   // fore/aft (toes vs front of ball)
+    this.plantLR = this.makeRuler(0x5bd75b, scene);   // left/right (inner foot vs side of ball)
   }
 
-  // A ground ruler: a fat line on the pitch + a CSS2D distance label (cm).
+  // A notched ground ruler: fat LineSegments2 (baseline + tick marks) + cm label.
   makeRuler(color, scene) {
-    const line = this.fatLine(color); scene.add(line);
+    const geo = new LineSegmentsGeometry(); geo.setPositions([0, 0, 0, 0, 0, 0]);
+    const mat = new LineMaterial({ linewidth: 2, color, transparent: true }); mat.worldUnits = false;
+    this._fatMats.push(mat);
+    const seg = new LineSegments2(geo, mat); seg.visible = false; seg.frustumCulled = false; scene.add(seg);
     const el = document.createElement('div');
     el.style.cssText = 'color:#eaffff;background:rgba(12,16,14,.72);border:1px solid rgba(255,255,255,.25);'
       + 'border-radius:4px;padding:1px 5px;font:11px system-ui,sans-serif;white-space:nowrap;pointer-events:none';
     const label = new CSS2DObject(el); label.visible = false; scene.add(label);
-    return { line, label, el };
+    return { seg, label, el };
   }
-  updateRuler(r, groundPt) {
-    const vis = !!groundPt;
-    r.line.visible = vis; r.label.visible = vis;
+  // a → b on the pitch; baseline + notch marks every 10 cm (taller at 50 cm).
+  updateRuler(r, a, b) {
+    const vis = !!(a && b);
+    r.seg.visible = vis; r.label.visible = vis;
     if (!vis) return;
-    const a = new THREE.Vector3(0, 0.012, 0);                    // ball centre on the pitch
-    const b = new THREE.Vector3(groundPt.x, 0.012, groundPt.z);  // plumb ground point
-    const dir = b.clone().sub(a); const len = dir.length(); const dist = len;
-    if (len > 1e-4) { dir.normalize(); setLine(r.line, true, a, dir, len, false); } else r.line.visible = false;
-    const mid = a.clone().add(b).multiplyScalar(0.5); mid.y = 0.05;
+    const A = new THREE.Vector3(a.x, 0.013, a.z), B = new THREE.Vector3(b.x, 0.013, b.z);
+    const dir = B.clone().sub(A); const len = dir.length();
+    if (len < 1e-3) { r.seg.visible = false; r.label.visible = false; return; }
+    dir.normalize();
+    const perp = new THREE.Vector3(-dir.z, 0, dir.x);
+    const pts = [A.x, A.y, A.z, B.x, B.y, B.z];
+    for (let d = 0.1; d <= len + 1e-6; d += 0.1) {
+      const p = A.clone().addScaledVector(dir, Math.min(d, len));
+      const h = (Math.round(d * 10) % 5 === 0) ? 0.05 : 0.026;
+      pts.push(p.x - perp.x * h, 0.013, p.z - perp.z * h, p.x + perp.x * h, 0.013, p.z + perp.z * h);
+    }
+    r.seg.geometry.setPositions(pts);
+    const mid = A.clone().add(B).multiplyScalar(0.5); mid.y = 0.06;
     r.label.position.copy(mid);
-    r.el.textContent = `${Math.round(dist * 100)} cm`;
+    r.el.textContent = `${Math.round(len * 100)} cm`;
   }
 
   // A fat (2px) polyline whose per-vertex colour fades toward its far end(s), so
@@ -130,10 +141,6 @@ export class Annotations {
     const h = (typeof window !== 'undefined') ? window.innerHeight : 1080;
     for (const m of this._fatMats) m.resolution.set(w, h);
     if (!center) return;
-    this.hip.position.set(center.x, 0.03, center.z);
-    setSector(this.hipRange, 0.62, 60);                 // Hip Turn range 0–60°
-    setSector(this.hipValue, 0.62, Math.max(0, params.hipTurn));
-    this.needle.rotation.z = -(Math.max(0, params.hipTurn) - 30) * DEG;
 
     const d = params.aimSupportDepth * 0.01; // cm → m
     this.dist.set(
@@ -241,11 +248,37 @@ export class Annotations {
       setLine(this.femurAxis, true, kneeHip, lat, 0.22, true);
     } else setLine(this.femurAxis, false);
 
-    // Ground rulers: ball centre → knee-plumb and → shoulder-plumb ground points,
-    // with a live cm label (how far the knee / shoulders are from over the ball).
+    // Plant-knee hinge disc (other leg) + plant-knee plumb is the plant leg's flex.
+    const pKnee = wp(`${S}Leg`); const pHip = wp(`${S}UpLeg`); const pAnk2 = wp(`${S}Foot`);
+    const showPK = on && params.axKneeHinge && pKnee && pHip && pAnk2;
+    this.plantKneeRing.visible = !!showPK;
+    if (showPK) {
+      const th = pKnee.clone().sub(pHip); const sh = pAnk2.clone().sub(pKnee);
+      let hg = new THREE.Vector3().crossVectors(th, sh);
+      if (hg.lengthSq() < 1e-6) hg = (lateral(`${S}UpLeg`, `${S}Leg`) || new THREE.Vector3(1, 0, 0));
+      hg.normalize();
+      this.plantKneeRing.position.copy(pKnee);
+      this.plantKneeRing.quaternion.setFromUnitVectors(Z_AXIS, hg);
+      setLine(this.plantKneeAxis, true, pKnee, hg, 0.20, true);
+    } else setLine(this.plantKneeAxis, false);
+
+    // Hip plumb — vertical drop from the pelvis to the pitch (read where the CoG
+    // is vs the ball; it should come forward toward the ball at contact).
+    const hipCp = wp('Hips');
+    setLine(this.axes.hipPlumb, on && params.axHipPlumb && hipCp, hipCp, new THREE.Vector3(0, -1, 0), hipCp ? hipCp.y : 0, false);
+
+    // Notched ground rulers from the BALL CENTRE (origin). knee/shoulder/hip plumb
+    // → ball (straight), and the plant foot split into fore/aft (Z) + left/right (X).
     const rulersOn = on && params.axRulers;
-    this.updateRuler(this.kneeRuler, (rulersOn && kneeO) ? new THREE.Vector3(kneeO.x, 0, kneeO.z) : null);
-    this.updateRuler(this.shRuler, (rulersOn && shC) ? new THREE.Vector3(shC.x, 0, shC.z) : null);
+    const O = new THREE.Vector3(0, 0, 0);
+    this.updateRuler(this.kneeRuler, rulersOn && kneeO ? O : null, kneeO ? new THREE.Vector3(kneeO.x, 0, kneeO.z) : null);
+    this.updateRuler(this.shRuler, rulersOn && shC ? O : null, shC ? new THREE.Vector3(shC.x, 0, shC.z) : null);
+    this.updateRuler(this.hipRuler, rulersOn && hipCp ? O : null, hipCp ? new THREE.Vector3(hipCp.x, 0, hipCp.z) : null);
+    // Plant foot: fore/aft along Z (at the toe's x) and left/right along X (at the toe's z).
+    if (rulersOn && pToe) {
+      this.updateRuler(this.plantFA, new THREE.Vector3(pToe.x, 0, 0), new THREE.Vector3(pToe.x, 0, pToe.z));
+      this.updateRuler(this.plantLR, new THREE.Vector3(0, 0, pToe.z), new THREE.Vector3(pToe.x, 0, pToe.z));
+    } else { this.updateRuler(this.plantFA, null, null); this.updateRuler(this.plantLR, null, null); }
 
     // Gaze — ONE line per eye, from the eye toward the ball so the two lines
     // converge on it (the coaching cue: eyes on the ball at the strike). AFTER
