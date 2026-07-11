@@ -9,6 +9,7 @@ import { BALL_RADIUS } from '../field.js';
 
 const DEG = Math.PI / 180;
 const Z_AXIS = new THREE.Vector3(0, 0, 1);
+const _smoothA = (u) => { const x = Math.min(1, Math.max(0, u)); return x * x * (3 - 2 * x); };
 // The ball sits at the origin; gaze/aim lines converge on its center.
 const BALL_POINT = new THREE.Vector3(0, BALL_RADIUS, 0);
 
@@ -96,7 +97,9 @@ export class Annotations {
     const label = new CSS2DObject(el); label.visible = false; scene.add(label);
     return { seg, label, el };
   }
-  // a → b on the pitch; baseline + notch marks every 10 cm (taller at 50 cm).
+  // a → b on the pitch; baseline + notch marks every BALL RADIUS (11 cm), taller
+  // every ball diameter (2 radii). Label reads in ball-radii (the coaching unit —
+  // e.g. "half a ball") plus cm.
   updateRuler(r, a, b) {
     const vis = !!(a && b);
     r.seg.visible = vis; r.label.visible = vis;
@@ -107,15 +110,17 @@ export class Annotations {
     dir.normalize();
     const perp = new THREE.Vector3(-dir.z, 0, dir.x);
     const pts = [A.x, A.y, A.z, B.x, B.y, B.z];
-    for (let d = 0.1; d <= len + 1e-6; d += 0.1) {
+    let i = 0;
+    for (let d = BALL_RADIUS; d <= len + 1e-6; d += BALL_RADIUS) {
+      i += 1;
       const p = A.clone().addScaledVector(dir, Math.min(d, len));
-      const h = (Math.round(d * 10) % 5 === 0) ? 0.05 : 0.026;
+      const h = (i % 2 === 0) ? 0.05 : 0.028; // taller every ball diameter
       pts.push(p.x - perp.x * h, 0.013, p.z - perp.z * h, p.x + perp.x * h, 0.013, p.z + perp.z * h);
     }
     r.seg.geometry.setPositions(pts);
     const mid = A.clone().add(B).multiplyScalar(0.5); mid.y = 0.06;
     r.label.position.copy(mid);
-    r.el.textContent = `${Math.round(len * 100)} cm`;
+    r.el.textContent = `${(len / BALL_RADIUS).toFixed(1)} r · ${Math.round(len * 100)} cm`;
   }
 
   // A fat (2px) polyline whose per-vertex colour fades toward its far end(s), so
@@ -299,13 +304,17 @@ export class Annotations {
       const mid = head.clone().addScaledVector(up, 0.09).addScaledVector(fwd, 0.075);
       eyeL = mid.clone().addScaledVector(lat, 0.032);
       eyeR = mid.clone().addScaledVector(lat, -0.032);
-      if (released) {
-        const rel = new THREE.Vector3(0, 0.30, -1).normalize(); // up & down-field, following the ball
-        dL = rel.clone(); dR = rel.clone(); lL = lR = 1.6;
-      } else {
-        dL = BALL_POINT.clone().sub(eyeL); lL = dL.length(); dL.normalize();
-        dR = BALL_POINT.clone().sub(eyeR); lR = dR.length(); dR.normalize();
-      }
+      // Before contact: each eye line runs to the ball (they converge on it).
+      // After: RELEASE smoothly toward where the head faces (a touch up), following
+      // the head — never a hard jump to a fixed vertical vector (which shot to the
+      // sky). Blend over a short window so there's no snap.
+      const c = this._contactT;
+      const rf = (c != null) ? _smoothA(((params.scrub || 0) - (c + 0.01)) / 0.10) : 0;
+      const relDir = fwd.clone(); relDir.y = 0.22; relDir.normalize(); // head facing, slightly up
+      const dist = BALL_POINT.distanceTo(eyeL);
+      dL = BALL_POINT.clone().sub(eyeL).normalize().lerp(relDir, rf).normalize();
+      dR = BALL_POINT.clone().sub(eyeR).normalize().lerp(relDir, rf).normalize();
+      lL = lR = dist * (1 - rf) + 1.4 * rf;
     }
     setLine(this.axes.gazeL, on && params.axGaze && eyeL, eyeL, dL, lL, false);
     setLine(this.axes.gazeR, on && params.axGaze && eyeR, eyeR, dR, lR, false);
