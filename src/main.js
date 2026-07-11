@@ -409,7 +409,6 @@ function applyFrame(tt) {
     mocap.seek(tn);                       // baked clip...
     if (!params.rawClip) {
     applyOverrides(bonesRef, restRef, params); // ...+ live parameter overrides
-    applyHopFoot(tn);                     // last step: lift the kicking foot before the plant lands
     applyRecoil(tn);                      // cock-back (pre-contact)
     applyWhip(tn);                        // strike: femur+knee drive, pelvis un-wind
     applyArms(tn);                        // counter-arm swing
@@ -784,26 +783,6 @@ function applyFollowBody(scrubN) {
 // (0.78c→0.92c), peaks at the top of the backswing, then releases by contact as
 // the whip fires. Zero everywhere else.
 function recoilEnvelope(scrubN) { return env(scrubN, timings.recoil); }
-
-// Procedural hop (last step): tuck the trailing = KICKING leg up so it's airborne
-// through the last stride, giving a both-feet-in-the-air beat BEFORE the plant
-// foot lands (~0.28) — the natural skip into the plant, without an extra step.
-const _hfEuler = new THREE.Euler();
-const _hfQuat = new THREE.Quaternion();
-function hopFootEnv(tn) {
-  const a = 0.02, pk = 0.15, e = 0.30;
-  if (tn < a || tn > e) return 0;
-  if (tn < pk) return _smooth((tn - a) / (pk - a));
-  return 1 - _smooth((tn - pk) / (e - pk));
-}
-function applyHopFoot(tn) {
-  const e = hopFootEnv(tn);
-  if (e < 0.01) return;
-  const K = params.footedness === 'right' ? 'Right' : 'Left';
-  const add = (name, x) => { const b = bonesRef[name]; if (!b) return; _hfEuler.set(x * DEG, 0, 0, 'XYZ'); b.quaternion.multiply(_hfQuat.setFromEuler(_hfEuler)); };
-  add(`${K}UpLeg`, e * 20);   // hip flexion — thigh comes up
-  add(`${K}Leg`, -e * 48);    // knee flexion — tuck the shin/foot up, off the ground
-}
 
 // The cock-back, layered on the baked pose during the recoil stage:
 //  1. the pelvis winds toward the kicking foot (rotating about the plant hip);
