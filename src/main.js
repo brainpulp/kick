@@ -267,7 +267,7 @@ loadCharacter(scene).then(({ model, bones, rest }) => {
   axF.add(params, 'axKneeHinge').name('Knee hinge (flex plane)');
   axF.add(params, 'axFemurHinge').name('Femur disc (front/back)');
   axF.add(params, 'axRulers').name('Ground rulers → ball');
-  axF.add(params, 'axSteps').name('Step numbers (1·2·3)');
+  axF.add(params, 'axSteps').name('Foot tracks');
   axF.add(params, 'axGaze').name('Gaze (eyes→ball)');
   const stageF = gui.addFolder('Stage speeds (imported clip)');
   stageF.close();
@@ -1048,57 +1048,79 @@ function calibrateMocap() {
   console.log(`[mocap] contactT=${mocapContactT.toFixed(3)} align=(${mocapAlign.x.toFixed(2)},${mocapAlign.z.toFixed(2)}) plantLock=(${mocapPlantLock.x.toFixed(2)},${mocapPlantLock.z.toFixed(2)}) bakedSlide=${mocapBakedSlide.toFixed(2)}m lift=${mocapPlantLift.toFixed(2)} footfalls=${footfalls.length} natural: depth=${params.aimSupportDepth}cm lat=${params.supportLateral}cm yaw=${params.supportPoint}° lock=${params.lockAnkle}° kneeAim=${params.kneeAim}cm trunk=${params.torsoBend}° hip=${params.hipTurn}°`);
 }
 
-// Detect run-up footfalls: sample both toes through the approach, keep the spots
-// where a toe is grounded AND stationary (a real footfall, not a swing), cluster
-// them, and return up to 3 nearest the ball ordered back→front (the plant, next
-// to the ball, is the front-most = highest number).
-const _ffToe = new THREE.Vector3();
+// Detect run-up footfalls HONESTLY: a footfall is where a foot is grounded AND
+// stays put (stationary) for a stretch — a real plant, not a swing, slide, or
+// one-frame skip. Returns each foot's plant spots with a heading (for the print
+// orientation) and which side, in time order.
+const _ffToe = new THREE.Vector3(), _ffAnk = new THREE.Vector3();
 function detectFootfalls() {
-  const toes = ['RightToeBase', 'LeftToeBase'].filter((n) => bonesRef[n]);
-  if (!toes.length) return [];
-  const get = (n) => { bonesRef[n].getWorldPosition(_ffToe); return { x: _ffToe.x, y: _ffToe.y, z: _ffToe.z }; };
-  const prev = {}; const pts = [];
-  for (let tn = 0; tn <= mocapContactT + 0.03; tn += 0.004) {
+  const feet = [
+    { side: 'R', toe: 'RightToeBase', ank: 'RightFoot' },
+    { side: 'L', toe: 'LeftToeBase', ank: 'LeftFoot' },
+  ].filter((f) => bonesRef[f.toe] && bonesRef[f.ank]);
+  if (!feet.length) return [];
+  const samples = []; let globalMinY = Infinity;
+  for (let tn = 0; tn <= mocapContactT + 0.01; tn += 0.004) { // up to contact, before the plant slides
     const ro = mocap.rootOffset(tn) || { x: 0, z: 0 };
     mocap.seek(tn);
     mocapModel.position.set(mocapBase.x - ro.x + mocapAlign.x, mocapBase.y, mocapBase.z - ro.z + mocapAlign.z);
     mocapModel.updateMatrixWorld(true);
-    const cur = {}; let minY = Infinity;
-    for (const n of toes) { cur[n] = get(n); if (cur[n].y < minY) minY = cur[n].y; }
-    for (const n of toes) {
-      const t = cur[n];
-      if (t.y - minY < 0.03) {                       // grounded this frame
-        const p = prev[n];
-        if (p && Math.hypot(t.x - p.x, t.z - p.z) < 0.012) pts.push({ x: t.x, z: t.z }); // stationary → footfall
-        prev[n] = { x: t.x, z: t.z };
-      } else prev[n] = null;
+    const fr = { tn };
+    for (const f of feet) {
+      bonesRef[f.toe].getWorldPosition(_ffToe); bonesRef[f.ank].getWorldPosition(_ffAnk);
+      fr[f.side] = { tx: _ffToe.x, ty: _ffToe.y, tz: _ffToe.z, ax: _ffAnk.x, az: _ffAnk.z };
+      if (_ffToe.y < globalMinY) globalMinY = _ffToe.y;
     }
+    samples.push(fr);
   }
-  const cl = [];
-  for (const p of pts) {
-    const c = cl.find((f) => Math.hypot(f.x - p.x, f.z - p.z) < 0.18);
-    if (c) { c.x = (c.x * c.n + p.x) / (c.n + 1); c.z = (c.z * c.n + p.z) / (c.n + 1); c.n += 1; } else cl.push({ x: p.x, z: p.z, n: 1 });
+  const GROUND = globalMinY + 0.035; // grounded = within 3.5 cm of the lowest the foot reaches
+  const out = [];
+  for (const f of feet) {
+    let run = [];
+    const flush = () => {
+      if (run.length >= 4) {                                   // grounded long enough
+        const xs = run.map((r) => r[f.side].tx), zs = run.map((r) => r[f.side].tz);
+        const rx = Math.max(...xs) - Math.min(...xs), rz = Math.max(...zs) - Math.min(...zs);
+        if (rx < 0.08 && rz < 0.10) {                          // truly planted (not sliding)
+          const m = run[Math.floor(run.length / 2)][f.side];
+          const heading = Math.atan2(m.tx - m.ax, -(m.tz - m.az)); // yaw about +Y (0 = toward goal)
+          out.push({ x: m.tx, z: m.tz, heading, side: f.side, tn: run[Math.floor(run.length / 2)].tn });
+        }
+      }
+      run = [];
+    };
+    for (const s of samples) { if (s[f.side].ty < GROUND) run.push(s); else flush(); }
+    flush();
   }
-  return cl.filter((c) => c.n >= 3).sort((a, b) => b.z - a.z).slice(-3); // back→front, keep the 3 nearest the ball
+  return out.sort((a, b) => a.tn - b.tn);
 }
 
-// Big number decal lying flat on the pitch at (x,z).
-function makeGroundNumber(num, x, z) {
-  const cv = document.createElement('canvas'); cv.width = cv.height = 128;
-  const g = cv.getContext('2d');
-  g.font = 'bold 104px system-ui, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
-  g.lineWidth = 9; g.strokeStyle = 'rgba(20,28,22,0.75)'; g.strokeText(String(num), 64, 68);
-  g.fillStyle = 'rgba(255,255,255,0.92)'; g.fillText(String(num), 64, 68);
-  const tex = new THREE.CanvasTexture(cv); tex.anisotropy = 8;
-  const m = new THREE.Mesh(new THREE.PlaneGeometry(0.42, 0.42),
-    new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false }));
-  m.rotation.x = -Math.PI / 2; m.position.set(x, 0.02, z); m.renderOrder = 5;
+// A foot-track print: a translucent sole-shaped decal on the pitch, oriented to
+// the foot's heading. Left/right shapes are mirrored so the track reads.
+const _Y_AX = new THREE.Vector3(0, 1, 0);
+const _qFlat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI / 2);
+function footprintTexture(side) {
+  const cv = document.createElement('canvas'); cv.width = 128; cv.height = 256;
+  const g = cv.getContext('2d'); g.translate(64, 128);
+  if (side === 'L') g.scale(-1, 1);
+  g.fillStyle = 'rgba(30,40,32,0.5)';
+  // sole: forefoot pad + heel pad
+  g.beginPath(); g.ellipse(0, -46, 34, 60, 0, 0, Math.PI * 2); g.fill();     // ball of foot
+  g.beginPath(); g.ellipse(6, 66, 26, 42, 0, 0, Math.PI * 2); g.fill();      // heel
+  g.beginPath(); g.ellipse(2, 12, 30, 40, 0, 0, Math.PI * 2); g.fill();      // arch bridge
+  const tex = new THREE.CanvasTexture(cv); tex.anisotropy = 8; return tex;
+}
+function makeFootprint(f) {
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(0.13, 0.26),
+    new THREE.MeshBasicMaterial({ map: footprintTexture(f.side), transparent: true, depthWrite: false }));
+  m.quaternion.setFromAxisAngle(_Y_AX, f.heading).multiply(_qFlat); // yaw, then lie flat
+  m.position.set(f.x, 0.02, f.z); m.renderOrder = 5;
   return m;
 }
 function buildStepNumbers() {
   if (stepGroup) { scene.remove(stepGroup); stepGroup.traverse((o) => { if (o.material) { if (o.material.map) o.material.map.dispose(); o.material.dispose(); } if (o.geometry) o.geometry.dispose(); }); }
   stepGroup = new THREE.Group(); scene.add(stepGroup);
-  footfalls.forEach((f, i) => stepGroup.add(makeGroundNumber(i + 1, f.x, f.z))); // front-most (plant) = highest
+  footfalls.forEach((f) => stepGroup.add(makeFootprint(f)));
   stepGroup.visible = params.axSteps !== false;
 }
 
