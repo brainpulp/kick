@@ -267,6 +267,7 @@ loadCharacter(scene).then(({ model, bones, rest }) => {
   axF.add(params, 'axKneeHinge').name('Knee hinge (flex plane)');
   axF.add(params, 'axFemurHinge').name('Femur disc (front/back)');
   axF.add(params, 'axRulers').name('Ground rulers → ball');
+  axF.add(params, 'axSteps').name('Step numbers (1·2·3)');
   axF.add(params, 'axGaze').name('Gaze (eyes→ball)');
   const stageF = gui.addFolder('Stage speeds (imported clip)');
   stageF.close();
@@ -523,6 +524,8 @@ function applySlippage(tn) {
 // calibration and become the defaults, so the untouched state still looks like
 // the real kick while every number is now exact and independently adjustable.
 let plantNat = null;   // measured natural plant: { toeY }
+let footfalls = [];    // detected run-up footfall XZ spots (back→front, plant last)
+let stepGroup = null;  // ground number markers (1,2,3) at the footfalls
 let plantFlatPitch = 30; // plant-foot ankle→toe pitch for a flat sole (tuned so the boot lies flat)
 let hadSave = false;   // did a saved parameter set exist (skip default seeding)
 const _ctToe = new THREE.Vector3(), _ctAnk = new THREE.Vector3();
@@ -1039,7 +1042,64 @@ function calibrateMocap() {
     }
   }
   // eslint-disable-next-line no-console
-  console.log(`[mocap] contactT=${mocapContactT.toFixed(3)} align=(${mocapAlign.x.toFixed(2)},${mocapAlign.z.toFixed(2)}) plantLock=(${mocapPlantLock.x.toFixed(2)},${mocapPlantLock.z.toFixed(2)}) bakedSlide=${mocapBakedSlide.toFixed(2)}m lift=${mocapPlantLift.toFixed(2)} natural: depth=${params.aimSupportDepth}cm lat=${params.supportLateral}cm yaw=${params.supportPoint}° lock=${params.lockAnkle}° kneeAim=${params.kneeAim}cm trunk=${params.torsoBend}° hip=${params.hipTurn}°`);
+  footfalls = detectFootfalls();
+  buildStepNumbers();
+  // eslint-disable-next-line no-console
+  console.log(`[mocap] contactT=${mocapContactT.toFixed(3)} align=(${mocapAlign.x.toFixed(2)},${mocapAlign.z.toFixed(2)}) plantLock=(${mocapPlantLock.x.toFixed(2)},${mocapPlantLock.z.toFixed(2)}) bakedSlide=${mocapBakedSlide.toFixed(2)}m lift=${mocapPlantLift.toFixed(2)} footfalls=${footfalls.length} natural: depth=${params.aimSupportDepth}cm lat=${params.supportLateral}cm yaw=${params.supportPoint}° lock=${params.lockAnkle}° kneeAim=${params.kneeAim}cm trunk=${params.torsoBend}° hip=${params.hipTurn}°`);
+}
+
+// Detect run-up footfalls: sample both toes through the approach, keep the spots
+// where a toe is grounded AND stationary (a real footfall, not a swing), cluster
+// them, and return up to 3 nearest the ball ordered back→front (the plant, next
+// to the ball, is the front-most = highest number).
+const _ffToe = new THREE.Vector3();
+function detectFootfalls() {
+  const toes = ['RightToeBase', 'LeftToeBase'].filter((n) => bonesRef[n]);
+  if (!toes.length) return [];
+  const get = (n) => { bonesRef[n].getWorldPosition(_ffToe); return { x: _ffToe.x, y: _ffToe.y, z: _ffToe.z }; };
+  const prev = {}; const pts = [];
+  for (let tn = 0; tn <= mocapContactT + 0.03; tn += 0.004) {
+    const ro = mocap.rootOffset(tn) || { x: 0, z: 0 };
+    mocap.seek(tn);
+    mocapModel.position.set(mocapBase.x - ro.x + mocapAlign.x, mocapBase.y, mocapBase.z - ro.z + mocapAlign.z);
+    mocapModel.updateMatrixWorld(true);
+    const cur = {}; let minY = Infinity;
+    for (const n of toes) { cur[n] = get(n); if (cur[n].y < minY) minY = cur[n].y; }
+    for (const n of toes) {
+      const t = cur[n];
+      if (t.y - minY < 0.03) {                       // grounded this frame
+        const p = prev[n];
+        if (p && Math.hypot(t.x - p.x, t.z - p.z) < 0.012) pts.push({ x: t.x, z: t.z }); // stationary → footfall
+        prev[n] = { x: t.x, z: t.z };
+      } else prev[n] = null;
+    }
+  }
+  const cl = [];
+  for (const p of pts) {
+    const c = cl.find((f) => Math.hypot(f.x - p.x, f.z - p.z) < 0.18);
+    if (c) { c.x = (c.x * c.n + p.x) / (c.n + 1); c.z = (c.z * c.n + p.z) / (c.n + 1); c.n += 1; } else cl.push({ x: p.x, z: p.z, n: 1 });
+  }
+  return cl.filter((c) => c.n >= 3).sort((a, b) => b.z - a.z).slice(-3); // back→front, keep the 3 nearest the ball
+}
+
+// Big number decal lying flat on the pitch at (x,z).
+function makeGroundNumber(num, x, z) {
+  const cv = document.createElement('canvas'); cv.width = cv.height = 128;
+  const g = cv.getContext('2d');
+  g.font = 'bold 104px system-ui, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.lineWidth = 9; g.strokeStyle = 'rgba(20,28,22,0.75)'; g.strokeText(String(num), 64, 68);
+  g.fillStyle = 'rgba(255,255,255,0.92)'; g.fillText(String(num), 64, 68);
+  const tex = new THREE.CanvasTexture(cv); tex.anisotropy = 8;
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(0.42, 0.42),
+    new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false }));
+  m.rotation.x = -Math.PI / 2; m.position.set(x, 0.02, z); m.renderOrder = 5;
+  return m;
+}
+function buildStepNumbers() {
+  if (stepGroup) { scene.remove(stepGroup); stepGroup.traverse((o) => { if (o.material) { if (o.material.map) o.material.map.dispose(); o.material.dispose(); } if (o.geometry) o.geometry.dispose(); }); }
+  stepGroup = new THREE.Group(); scene.add(stepGroup);
+  footfalls.forEach((f, i) => stepGroup.add(makeGroundNumber(i + 1, f.x, f.z))); // front-most (plant) = highest
+  stepGroup.visible = params.axSteps !== false;
 }
 
 // Loop-wrap fade: the clip ends ~3.7 m downfield, so the reset back to the start
@@ -1112,6 +1172,7 @@ function animate() {
   if (envtl) envtl.update();
   if (cptbl) cptbl.update();
   if (handles) handles.update(bonesRef);
+  if (stepGroup) stepGroup.visible = params.axSteps !== false;
   if (contact) contact.update();
   updateTrajectory();
   controls.update();
