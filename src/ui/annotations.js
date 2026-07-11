@@ -193,10 +193,12 @@ export class Annotations {
       setLine(this.axes.trunk, on && params.axTrunk, hipsB, tdir, tlen, false);
     } else setLine(this.axes.trunk, false);
 
-    // Toes — where the kicking foot points (horizontal forward).
+    // Toes — where the kicking foot points, aligned to the SOLE (3D ankle→toe,
+    // so it follows the foot's plantarflexion, not a flattened horizontal).
     const toe = wp(`${K}ToeBase`); const foot = wp(`${K}Foot`);
-    const toeDir = (toe && foot) ? toe.clone().sub(foot).setY(0).normalize() : null;
-    setLine(this.axes.toes, on && params.axToes && toe && toeDir, toe, toeDir, 1.5, false);
+    const soleDir = (toe && foot) ? toe.clone().sub(foot).normalize() : null;
+    const toeDir = soleDir ? soleDir.clone().setY(0).normalize() : null; // horizontal, for the knee-plumb offset
+    setLine(this.axes.toes, on && params.axToes && toe && soleDir, toe, soleDir, 1.5, false);
 
     // Planted foot — its pointing direction (horizontal), a strong indicator of
     // where the ball will go. Drawn flat along the pitch from the plant toe.
@@ -310,11 +312,11 @@ export class Annotations {
       // sky). Blend over a short window so there's no snap.
       const c = this._contactT;
       const rf = (c != null) ? _smoothA(((params.scrub || 0) - (c + 0.01)) / 0.10) : 0;
-      const relDir = fwd.clone(); relDir.y = 0.22; relDir.normalize(); // head facing, slightly up
+      const relDir = fwd.clone(); relDir.y = 0.05; relDir.normalize(); // head facing, nearly level (not skyward)
       const dist = BALL_POINT.distanceTo(eyeL);
       dL = BALL_POINT.clone().sub(eyeL).normalize().lerp(relDir, rf).normalize();
       dR = BALL_POINT.clone().sub(eyeR).normalize().lerp(relDir, rf).normalize();
-      lL = lR = dist * (1 - rf) + 1.4 * rf;
+      lL = lR = dist * (1 - rf) + 1.1 * rf;
     }
     setLine(this.axes.gazeL, on && params.axGaze && eyeL, eyeL, dL, lL, false);
     setLine(this.axes.gazeR, on && params.axGaze && eyeR, eyeR, dR, lR, false);

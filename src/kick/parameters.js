@@ -112,6 +112,7 @@ export const params = {
   axKneeHinge: true,
   axFemurHinge: true,
   axRulers: true,
+  axSteps: true,
   axGaze: true,
 };
 
