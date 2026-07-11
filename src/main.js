@@ -19,6 +19,7 @@ import { loadExternalClip, retargetClip, MocapPlayer, applyOverrides } from './k
 import { scenarioStore, snapshot, applyScenario } from './scenarios.js';
 import { loadState, startAutosave } from './persist.js';
 import { solveLeg, solveFoot, solveTrunkLean, solveHipYaw } from './kick/ik.js';
+import { buildRunupPlan, driveRunup } from './kick/runup.js';
 
 const SECONDS_FULL = 2.4; // wall-clock seconds for the whole 0..CLIP_END clip
 const GRAVITY = 9.81;
@@ -42,6 +43,7 @@ let mocapBakedSlide = 0;              // |mocapSlideEnd| (m); the natural slide 
 let mocapContactT = 0.7;          // normalized clip time of ball contact
 let mocapPlayT = 0;               // wall-clock for mocap playback (incl. delay)
 let mocapBaseQuat = null;         // model's facing rotation (before tilt lean)
+let runupPlan = null;             // synthesized clean run-up geometry (footfalls, path)
 let bonesRef = null, restRef = null, sourceCtrl = null;
 const sourceOptions = () => (mocapAvailable
   ? { 'Imported clip': 'mocap', 'Authored clip': 'authored', Procedural: 'procedural' }
@@ -346,6 +348,9 @@ loadCharacter(scene).then(({ model, bones, rest }) => {
       mocapLib: { retargetClip, MocapPlayer, applyOverrides },
       frame(s) { params.playing = false; params.scrub = s; applyFrame(s * CLIP_END); },
       get contactT() { return mocapContactT; },
+      get runup() { return runupPlan; },
+      get plantStart() { return mocapPlantStart; },
+      get mbase() { return mocapBase; },
       measure: measureConstraint,
       view(px, py, pz, tx, ty, tz) {
         camera.position.set(px, py, pz); controls.target.set(tx, ty, tz); controls.update();
@@ -401,30 +406,29 @@ function buildViewButtons(setView, onContact) {
   document.body.appendChild(wrap);
 }
 
-function applyFrame(tt) {
-  const tn = Math.min(Math.max(tt / CLIP_END, 0), 1);
-  // While actively authoring, the editor always drives the rig.
-  if (editor && editor.enabled) {
-    editor.applyAt(tn);
-  } else if (params.source === 'mocap' && mocapAvailable) {
-    mocap.seek(tn);                       // baked clip...
-    if (!params.rawClip) {
+// Pose the imported clip exactly as it plays at normalized time tn: baked pose +
+// live parameter overrides + root motion + grounding + the technique IK. Used
+// both for normal playback (tn ≥ plantStart) and as the crossfade target for the
+// synthesized run-up.
+function poseMocapClip(tn) {
+  mocap.seek(tn);                       // baked clip...
+  if (!params.rawClip) {
     applyOverrides(bonesRef, restRef, params); // ...+ live parameter overrides
     applyRecoil(tn);                      // cock-back (pre-contact)
     applyWhip(tn);                        // strike: femur+knee drive, pelvis un-wind
     applyArms(tn);                        // counter-arm swing
     applyFollowBody(tn);                   // follow-through: cross-over + shoulders turn to plant
-    }
-    // Root motion: model faces -Z (rotation.y = PI) so negate clip X/Z; align
-    // shift makes the strike foot meet the ball.
-    const o = params.rootMotion ? mocap.rootOffset(tn) : null;
-    mocapModel.position.set(
-      mocapBase.x - (o ? o.x : 0) + mocapAlign.x,
-      mocapBase.y + (o ? Math.max(0, o.y) : 0),
-      mocapBase.z - (o ? o.z : 0) + mocapAlign.z,
-    );
-    groundModel();
-    if (!params.rawClip) {
+  }
+  // Root motion: model faces -Z (rotation.y = PI) so negate clip X/Z; align
+  // shift makes the strike foot meet the ball.
+  const o = params.rootMotion ? mocap.rootOffset(tn) : null;
+  mocapModel.position.set(
+    mocapBase.x - (o ? o.x : 0) + mocapAlign.x,
+    mocapBase.y + (o ? Math.max(0, o.y) : 0),
+    mocapBase.z - (o ? o.z : 0) + mocapAlign.z,
+  );
+  groundModel();
+  if (!params.rawClip) {
     // Hop: the little skip right before the plant foot lands — the body rises and
     // drops onto the plant (a vertical arc; the clip supplies the forward travel).
     // Gone by the plant (~0.28) so it never disturbs the planted foot.
@@ -435,6 +439,24 @@ function applyFrame(tt) {
     applySlippage(tn);   // lock/scale the plant-foot forward slide (0 = no slide)
     applyConstraints(tn); // TECHNIQUE checkpoints: exact leg constraints — last
     applyGaze(tn);       // keep the head locked on the ball until landing
+  }
+}
+
+function applyFrame(tt) {
+  const tn = Math.min(Math.max(tt / CLIP_END, 0), 1);
+  // While actively authoring, the editor always drives the rig.
+  if (editor && editor.enabled) {
+    editor.applyAt(tn);
+  } else if (params.source === 'mocap' && mocapAvailable) {
+    // The clip's own approach is skate-y (it's a KICK clip). Over the approach
+    // window [0, plantStart) drive a synthesized clean run-up instead, crossfading
+    // into the clip at the plant. Past that, play the clip (+ overrides + IK).
+    const useRunup = !params.rawClip && runupPlan && tn < mocapPlantStart;
+    if (!useRunup || !driveRunup(tn, {
+      bones: bonesRef, rest: restRef, model: mocapModel, base: mocapBase, baseQuat: mocapBaseQuat,
+      plan: runupPlan, P: mocapPlantStart, clipPose: poseMocapClip,
+    })) {
+      poseMocapClip(tn);
     }
   } else if (params.source === 'authored' && editor && editor.keys.length) {
     editor.applyAt(tn);
@@ -1040,6 +1062,20 @@ function calibrateMocap() {
       Object.assign(params, seed);
       Object.assign(DEFAULTS, seed);
     }
+  }
+  // Synthesized run-up geometry: a clean N-step approach that ends on the plant
+  // lock. Travel direction = the clip's own approach heading (model-space), so the
+  // synthetic run comes in along the same line the strike expects.
+  {
+    const Splant = params.footedness === 'right' ? 'Left' : 'Right';
+    const posAt = (t) => {
+      const ro = mocap.rootOffset(t) || { x: 0, z: 0 };
+      return { x: mocapBase.x - ro.x + mocapAlign.x, z: mocapBase.z - ro.z + mocapAlign.z };
+    };
+    const pA = posAt(mocapPlantStart * 0.4), pB = posAt(mocapPlantStart);
+    let dir = { x: pB.x - pA.x, z: pB.z - pA.z };
+    if (Math.hypot(dir.x, dir.z) < 1e-4) dir = { x: 0, z: -1 }; // fallback: straight at the goal
+    runupPlan = buildRunupPlan({ plantLock: mocapPlantLock, plantSide: Splant, dir, nStrides: 3 });
   }
   // eslint-disable-next-line no-console
   footfalls = detectFootfalls();
