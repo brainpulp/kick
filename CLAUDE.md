@@ -54,16 +54,7 @@ https://app.notion.com/p/a0290648726c4551b6901818d5a74070
   toggle; cross-over couples to Hip Turn, 0 at the neutral 38°).
 - App + GitHub Pages deploy; headless preview loop (webm/screenshots).
 - Mixamo clip ingest (retarget + root motion); ball launches at calibrated contact.
-- SYNTHESIZED run-up (src/kick/runup.js): the kick clip only carries ~1.5 skate-y
-  strides, so the approach window [0, plantStart) is now a procedural clean 3-step
-  run that crossfades into the clip at the plant. Each stance foot is IK-locked to a
-  fixed ground spot while the pelvis travels past it (no skate BY CONSTRUCTION);
-  swing foot arcs to the next spot; natural arm pump + forward lean. Grounds by the
-  STANCE foot (not the lowest foot) so the swing foot keeps its lift; the pelvis lags
-  the footfall line at the start (eased to 0 by the plant) to stay within leg reach.
-  buildRunupPlan() lays footfalls on the clip's own plant-lock along its approach
-  heading. The strike path (tn ≥ plantStart) is untouched (poseMocapClip is the
-  extracted clip-pose helper, reused as the crossfade target). nStrides fixed at 3.
+- Clean run-up (plays the clip's own baked run — no synthetic-jog skate).
 - Lighting/turf/pitch lines/cones; 3D gizmos + body-axis lines (toggle).
 - Per-control reset + reset-all; scenarios UI (local store).
 - Parameters wired: Tilt, Recoil, Hop (forward skip, fixed), Whip (femur+knee+pelvis un-wind),
@@ -82,10 +73,8 @@ https://app.notion.com/p/a0290648726c4551b6901818d5a74070
   foot and swings the kicking leg up & ACROSS the midline (cross-over over the plant foot).
 
 **Missing / not yet done**
-- Run-up STEPS (1–5) + 45° approach ANGLE — the run-up is now SYNTHESIZED (see above),
-  so variable step count is unblocked, but the runupSteps/runupAngle SLIDERS aren't yet
-  wired to it (nStrides is hard-coded 3; buildRunupPlan would need to rebuild on change,
-  and the approach dir would rotate by runupAngle). Wire these next.
+- Run-up STEPS (1–5) + 45° approach ANGLE — controls exist but paused; need a dedicated
+  run/locomotion clip (the kick clip can't supply variable straight/angled steps).
 - Follow-up landing — literal weight transfer / landing on the kicking foot (player stays
   rooted; only the upper-body/leg cross-over is modelled, not a real forward step).
 - Contact zones — expand foot/ball parts + a contact annotation marking foot-point × ball-point.
