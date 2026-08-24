@@ -19,6 +19,9 @@ import { loadExternalClip, retargetClip, MocapPlayer, applyOverrides } from './k
 import { scenarioStore, snapshot, applyScenario } from './scenarios.js';
 import { loadState, startAutosave } from './persist.js';
 import { solveLeg, solveFoot, solveTrunkLean, solveHipYaw } from './kick/ik.js';
+import { Line2 } from 'three/examples/jsm/lines/Line2.js';
+import { LineGeometry } from 'three/examples/jsm/lines/LineGeometry.js';
+import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js';
 
 const SECONDS_FULL = 2.4; // wall-clock seconds for the whole 0..CLIP_END clip
 const GRAVITY = 9.81;
@@ -268,6 +271,7 @@ loadCharacter(scene).then(({ model, bones, rest }) => {
   axF.add(params, 'axFemurHinge').name('Femur disc (front/back)');
   axF.add(params, 'axRulers').name('Ground rulers → ball');
   axF.add(params, 'axSteps').name('Foot tracks');
+  axF.add(params, 'axFootPath').name('Foot arc (strike path)').onChange(() => { if (footPathLine) footPathLine.visible = !!params.showAxes && params.axFootPath !== false; });
   axF.add(params, 'axGaze').name('Gaze (eyes→ball)');
   const stageF = gui.addFolder('Stage speeds (imported clip)');
   stageF.close();
@@ -449,6 +453,7 @@ function applyFrame(tt) {
     if (launched && !crossed) resetBall();
   }
   annotations.update(params, mocapModel ? mocapModel.position : null, mocapAvailable ? mocapContactT : null);
+  if (footPathLine) footPathLine.visible = !!params.showAxes && params.axFootPath !== false;
 }
 
 // Shift the model down so the lowest foot rests on the pitch (kills floating /
@@ -526,6 +531,7 @@ function applySlippage(tn) {
 let plantNat = null;   // measured natural plant: { toeY }
 let footfalls = [];    // detected run-up footfall XZ spots (back→front, plant last)
 let stepGroup = null;  // ground number markers (1,2,3) at the footfalls
+let footPathLine = null; // 3D trace of the kicking foot's strike arc (pre/at/post contact)
 let plantFlatPitch = 30; // plant-foot ankle→toe pitch for a flat sole (tuned so the boot lies flat)
 let hadSave = false;   // did a saved parameter set exist (skip default seeding)
 const _ctToe = new THREE.Vector3(), _ctAnk = new THREE.Vector3();
@@ -1044,6 +1050,7 @@ function calibrateMocap() {
   // eslint-disable-next-line no-console
   footfalls = detectFootfalls();
   buildStepNumbers();
+  buildFootPath();
   // eslint-disable-next-line no-console
   console.log(`[mocap] contactT=${mocapContactT.toFixed(3)} align=(${mocapAlign.x.toFixed(2)},${mocapAlign.z.toFixed(2)}) plantLock=(${mocapPlantLock.x.toFixed(2)},${mocapPlantLock.z.toFixed(2)}) bakedSlide=${mocapBakedSlide.toFixed(2)}m lift=${mocapPlantLift.toFixed(2)} footfalls=${footfalls.length} natural: depth=${params.aimSupportDepth}cm lat=${params.supportLateral}cm yaw=${params.supportPoint}° lock=${params.lockAnkle}° kneeAim=${params.kneeAim}cm trunk=${params.torsoBend}° hip=${params.hipTurn}°`);
 }
@@ -1122,6 +1129,64 @@ function buildStepNumbers() {
   stepGroup = new THREE.Group(); scene.add(stepGroup);
   footfalls.forEach((f) => stepGroup.add(makeFootprint(f)));
   stepGroup.visible = params.axSteps !== false;
+}
+
+// Foot strike-arc trace (FIRST-PASS / clumsy — see CLAUDE.md TODO). The spatial
+// line the kicking foot draws through the air BEFORE, DURING and AFTER contact —
+// a pre-visualization of where the boot is pointing the ball. Sampled from the
+// clip's own strike surface (mid-instep, ankle→toe) across the strike window and
+// drawn as one fat polyline coloured cool→gold→warm (pre → contact → post).
+// NOTE: precomputed from the natural clip at calibration; it does NOT yet track
+// the live sliders (whip/lockAnkle/kneeAim…). That's the polish still to do.
+const _fpA = new THREE.Vector3(), _fpT = new THREE.Vector3();
+function computeFootPath() {
+  if (!mocap || !bonesRef) return { pos: [], col: [] };
+  const K = params.footedness === 'right' ? 'Right' : 'Left';
+  const ank = bonesRef[`${K}Foot`], toe = bonesRef[`${K}ToeBase`];
+  if (!ank || !toe) return { pos: [], col: [] };
+  const c = mocapContactT;
+  const t0 = Math.max(0, c - 0.16), t1 = Math.min(1, c + 0.24);
+  const pos = [], col = [];
+  const cCool = new THREE.Color(0x2f7fff), cHot = new THREE.Color(0xffc23f), cWarm = new THREE.Color(0xff5252);
+  const tmp = new THREE.Color();
+  for (let tn = t0; tn <= t1 + 1e-6; tn += 0.01) {
+    const o = mocap.rootOffset(tn) || { x: 0, z: 0, y: 0 };
+    mocap.seek(tn);
+    mocapModel.position.set(mocapBase.x - o.x + mocapAlign.x, mocapBase.y + Math.max(0, o.y || 0), mocapBase.z - o.z + mocapAlign.z);
+    mocapModel.updateMatrixWorld(true);
+    ank.getWorldPosition(_fpA); toe.getWorldPosition(_fpT);
+    // Strike surface point: 60% from ankle toward the toe (≈ the laces/instep).
+    const px = _fpA.x + (_fpT.x - _fpA.x) * 0.6;
+    const py = _fpA.y + (_fpT.y - _fpA.y) * 0.6;
+    const pz = _fpA.z + (_fpT.z - _fpA.z) * 0.6;
+    pos.push(px, py, pz);
+    // Colour by phase: cool before contact, gold at contact, warm after.
+    const f = (tn - t0) / Math.max(1e-3, t1 - t0);
+    const cf = (c - t0) / Math.max(1e-3, t1 - t0); // contact's fraction along the window
+    if (f <= cf) tmp.copy(cCool).lerp(cHot, f / Math.max(1e-3, cf));
+    else tmp.copy(cHot).lerp(cWarm, (f - cf) / Math.max(1e-3, 1 - cf));
+    col.push(tmp.r, tmp.g, tmp.b);
+  }
+  return { pos, col };
+}
+function buildFootPath() {
+  const { pos, col } = computeFootPath();
+  if (pos.length < 6) return;
+  if (!footPathLine) {
+    const geo = new LineGeometry();
+    const mat = new LineMaterial({ linewidth: 3, vertexColors: true, transparent: true, depthTest: true });
+    mat.worldUnits = false;
+    mat.resolution.set(window.innerWidth || 1920, window.innerHeight || 1080);
+    footPathLine = new Line2(geo, mat);
+    footPathLine.frustumCulled = false;
+    scene.add(footPathLine);
+    // Piggyback on the annotations' per-frame resolution refresh so line width is crisp.
+    if (annotations && annotations._fatMats) annotations._fatMats.push(mat);
+  }
+  footPathLine.geometry.setPositions(pos);
+  footPathLine.geometry.setColors(col);
+  footPathLine.computeLineDistances && footPathLine.computeLineDistances();
+  footPathLine.visible = !!params.showAxes && params.axFootPath !== false;
 }
 
 // Loop-wrap fade: the clip ends ~3.7 m downfield, so the reset back to the start

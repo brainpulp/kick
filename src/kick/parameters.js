@@ -113,6 +113,7 @@ export const params = {
   axFemurHinge: true,
   axRulers: true,
   axSteps: true,
+  axFootPath: true, // 3D trace of the arc the kicking foot draws pre/at/post contact (aiming aid)
   axGaze: true,
 };
 
