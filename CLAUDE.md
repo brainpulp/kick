@@ -71,6 +71,10 @@ https://app.notion.com/p/a0290648726c4551b6901818d5a74070
 - Lock-gaze ANIMATION — head pinned to the ball through run-up until landing (~0.90), then releases.
 - Follow-up BODY — the (always-full) follow-through turns the shoulders/hips toward the plant
   foot and swings the kicking leg up & ACROSS the midline (cross-over over the plant foot).
+- FOOT STRIKE-ARC trace (FIRST-PASS/clumsy — Maxi's idea): a 3D polyline of the spatial line
+  the kicking foot draws through the air BEFORE / DURING / AFTER contact — the boot's own
+  "swoosh" as an AIMING aid ("pointing the bullet"). Coloured cool→gold→warm (pre→contact→post),
+  sampled at the instep/laces (60% ankle→toe). Toggle "Foot arc (strike path)". See TODO below.
 
 **Missing / not yet done**
 - Run-up STEPS (1–5) + 45° approach ANGLE — controls exist but paused; need a dedicated
@@ -78,6 +82,12 @@ https://app.notion.com/p/a0290648726c4551b6901818d5a74070
 - Follow-up landing — literal weight transfer / landing on the kicking foot (player stays
   rooted; only the upper-body/leg cross-over is modelled, not a real forward step).
 - Contact zones — expand foot/ball parts + a contact annotation marking foot-point × ball-point.
+- FOOT STRIKE-ARC — POLISH the first-pass trace (see Done). Currently precomputed from the
+  natural clip at calibration, so it does NOT track the live sliders (whip/lockAnkle/kneeAim/
+  tilt…); the follow-through spike is tall/busy. To do: recompute from the LIVE posed strike
+  (cheap, e.g. on pause / param change), smooth the curve, maybe an arrowhead + a tangent
+  "aim" ray at contact showing launch direction, and consider limiting the drawn window or
+  fading it so it's less cluttered. Maxi: "the current system is clumsy, keep the note."
 - Live tuning to confirm: pelvis un-wind direction, counter-arm extents, tilt direction, hop feel.
 - Later: populate real-kick scenarios (e.g. Caniggia vs River '92); Supabase backend.
 
